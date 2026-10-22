@@ -1,9 +1,14 @@
 mod core;
+mod credential_store;
+mod hotkey;
+mod session;
 mod storage;
+mod tray_icon;
 use core::*;
+use credential_store::CredentialStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use session::SessionCredential;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -22,7 +27,6 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
-const SERVICE: &str = "com.patentquicksearch.desktop";
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
@@ -77,51 +81,41 @@ struct Guard {
     deadline: u64,
     attempts: u8,
     searches: HashSet<String>,
-    fetches: HashSet<String>,
 }
 struct Inner {
     disk: Disk,
     run: Option<Guard>,
     known: HashMap<String, u64>,
     generation: u64,
+    credential: SessionCredential,
+    credential_error: Option<String>,
     balance: Option<BalanceSnapshot>,
     balance_token: CancellationToken,
     balance_loading: bool,
     balance_request_id: u64,
     cooldown: u64,
     hotkey_error: Option<String>,
-    hidden_notice: bool,
+    hotkey_recording: bool,
+    recording_was_registered: bool,
 }
 struct AppState {
-    inner: Mutex<Inner>,
+    inner: Arc<Mutex<Inner>>,
+    credential_store: Arc<Mutex<CredentialStore>>,
     directory: PathBuf,
     client: reqwest::Client,
     slots: Arc<Semaphore>,
 }
-fn credential() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(SERVICE, "deepseek-api-key").map_err(|_| "无法访问系统凭据存储".into())
+fn load_key(state: &AppState) -> Result<Zeroizing<String>, ApiError> {
+    state.inner.lock().unwrap().credential.copy_for_request()
 }
-fn key() -> Result<Zeroizing<String>, ApiError> {
-    credential()
-        .map_err(|_| ApiError::new("credential"))?
-        .get_password()
-        .map(Zeroizing::new)
-        .map_err(|_| ApiError::new("unconfigured"))
+fn set_session_credential(i: &mut Inner, input: &str) -> Result<(), String> {
+    i.credential.replace(input)?;
+    reset_credential(i);
+    Ok(())
 }
-async fn load_key() -> Result<Zeroizing<String>, ApiError> {
-    tauri::async_runtime::spawn_blocking(key)
-        .await
-        .map_err(|_| ApiError::new("credential"))?
-}
-fn configured() -> Result<bool, String> {
-    match credential()?.get_password() {
-        Ok(k) => {
-            let _k = Zeroizing::new(k);
-            Ok(true)
-        }
-        Err(keyring::Error::NoEntry) => Ok(false),
-        Err(_) => Err("无法访问系统凭据存储，请检查 Keychain / Credential Manager".into()),
-    }
+fn clear_session_credential(i: &mut Inner) {
+    i.credential.clear();
+    reset_credential(i);
 }
 fn save_disk(s: &AppState, d: &Disk) -> Result<(), String> {
     let bytes = serde_json::to_vec(d).map_err(|_| "无法编码本地数据")?;
@@ -180,36 +174,100 @@ fn reset_credential(i: &mut Inner) {
 fn bootstrap(state: State<AppState>) -> Result<Value, String> {
     let mut i = state.inner.lock().unwrap();
     prune_history(&mut i.disk.history);
-    let credential_status = match configured() {
-        Ok(v) => (v, None),
-        Err(e) => (false, Some(e)),
-    };
     Ok(
-        json!({"settings":i.disk.settings,"configured":credential_status.0,"credentialError":credential_status.1,"history":i.disk.history,"hotkeyError":i.hotkey_error}),
+        json!({"settings":i.disk.settings,"configured":i.credential.is_configured(),"history":search_history_view(&i.disk.history),"hotkeyError":i.hotkey_error,"credentialError":i.credential_error}),
     )
 }
 #[tauri::command]
-fn store_key(state: State<AppState>, input: String) -> Result<(), String> {
-    let draft = Zeroizing::new(input);
-    let checked = Zeroizing::new(valid_key(&draft)?);
-    let mut i = state.inner.lock().unwrap();
-    credential()?
-        .set_password(&checked)
-        .map_err(|_| "无法安全保存密钥，请重试")?;
-    reset_credential(&mut i);
-    let _ = save_disk(&state, &i.disk);
+async fn set_local_key(state: State<'_, AppState>, input: String) -> Result<(), String> {
+    let inner = state.inner.clone();
+    let store = state.credential_store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let draft = Zeroizing::new(input);
+        // File operations serialize separately. Balance/Search keep using the old
+        // in-memory value until an atomic write succeeds, then that generation is revoked.
+        let mut persisted = store.lock().unwrap();
+        persisted.replace(&draft)?;
+        persisted.clear_memory();
+        let mut i = inner.lock().unwrap();
+        set_session_credential(&mut i, &draft)?;
+        i.credential_error = None;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|_| "无法保存本地密钥，请重试。".to_string())??;
+    let _ = save_disk(&state, &state.inner.lock().unwrap().disk);
     Ok(())
 }
 #[tauri::command]
-fn delete_key(state: State<AppState>) -> Result<(), String> {
-    let mut i = state.inner.lock().unwrap();
-    match credential()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => (),
-        Err(_) => return Err("无法删除系统凭据，请重试".into()),
-    };
-    reset_credential(&mut i);
-    let _ = save_disk(&state, &i.disk);
+async fn clear_local_key(state: State<'_, AppState>) -> Result<(), String> {
+    let inner = state.inner.clone();
+    let store = state.credential_store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut persisted = store.lock().unwrap();
+        persisted.clear()?;
+        let mut i = inner.lock().unwrap();
+        clear_session_credential(&mut i);
+        i.credential_error = None;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|_| "无法清除本地密钥，请重试。".to_string())??;
+    let _ = save_disk(&state, &state.inner.lock().unwrap().disk);
     Ok(())
+}
+struct NativeHotkeys<'a>(&'a tauri::AppHandle);
+impl hotkey::Registry for NativeHotkeys<'_> {
+    fn register(&mut self, key: &str) -> Result<(), String> {
+        self.0
+            .global_shortcut()
+            .register(key)
+            .map_err(|_| "无法注册快捷键".into())
+    }
+    fn unregister(&mut self, key: &str) -> Result<(), String> {
+        self.0
+            .global_shortcut()
+            .unregister(key)
+            .map_err(|_| "无法停用快捷键".into())
+    }
+}
+#[tauri::command]
+fn begin_hotkey_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    let mut i = state.inner.lock().unwrap();
+    if i.hotkey_recording {
+        return Ok(());
+    }
+    let registered = i.hotkey_error.is_none();
+    if registered {
+        app.global_shortcut()
+            .unregister(i.disk.settings.hotkey.as_str())
+            .map_err(|_| "暂时无法开始录制，请重试")?;
+    }
+    i.recording_was_registered = registered;
+    i.hotkey_recording = true;
+    Ok(())
+}
+fn restore_hotkey(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
+    let mut i = state.inner.lock().unwrap();
+    if !i.hotkey_recording {
+        return i.hotkey_error.clone().map_or(Ok(()), Err);
+    }
+    i.hotkey_recording = false;
+    if i.recording_was_registered
+        && app
+            .global_shortcut()
+            .register(i.disk.settings.hotkey.as_str())
+            .is_err()
+    {
+        let error = "原快捷键未能恢复，请重新保存快捷键或重开应用".to_string();
+        i.hotkey_error = Some(error.clone());
+        return Err(error);
+    }
+    Ok(())
+}
+#[tauri::command]
+fn end_hotkey_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
+    restore_hotkey(&app, &state)
 }
 #[tauri::command]
 fn update_settings(
@@ -222,35 +280,33 @@ fn update_settings(
     if settings.schema_version != 1 {
         return Err("不支持的设置版本".into());
     }
-    let was_failed = i.hotkey_error.is_some();
-    let register_needed = settings.hotkey != old.hotkey || was_failed;
-    if register_needed {
-        app.global_shortcut()
-            .register(settings.hotkey.as_str())
-            .map_err(|_| "无法注册快捷键，请检查系统设置或换一个组合")?;
-        if settings.hotkey != old.hotkey {
-            let _ = app.global_shortcut().unregister(old.hotkey.as_str());
-        }
+    if i.hotkey_recording {
+        return Err("请先结束快捷键录制".into());
     }
-    i.disk.settings = settings;
-    if let Err(e) = save_disk(&state, &i.disk) {
-        if register_needed {
-            let _ = app
-                .global_shortcut()
-                .unregister(i.disk.settings.hotkey.as_str());
-            if !was_failed {
-                let _ = app.global_shortcut().register(old.hotkey.as_str());
+    let was_registered = i.hotkey_error.is_none();
+    hotkey::replace(
+        &mut NativeHotkeys(&app),
+        &old.hotkey,
+        &settings.hotkey,
+        was_registered,
+        |next| {
+            i.disk.settings = if next { settings.clone() } else { old.clone() };
+            let result = save_disk(&state, &i.disk);
+            if result.is_err() {
+                i.disk.settings = old.clone();
             }
-        }
-        i.disk.settings = old;
-        return Err(e);
-    }
+            result
+        },
+    )?;
     i.hotkey_error = None;
     Ok(())
 }
 #[tauri::command]
 fn begin_run(state: State<AppState>, id: String) -> Result<(), ApiError> {
     let mut i = state.inner.lock().unwrap();
+    if !i.credential.is_configured() {
+        return Err(ApiError::new("unconfigured"));
+    }
     if !i.disk.settings.service_notice_accepted {
         return Err(ApiError::new("consent"));
     }
@@ -262,7 +318,6 @@ fn begin_run(state: State<AppState>, id: String) -> Result<(), ApiError> {
         deadline: now() + 60000,
         attempts: 0,
         searches: HashSet::new(),
-        fetches: HashSet::new(),
     });
     Ok(())
 }
@@ -333,22 +388,13 @@ async fn api_request(
         if g.id != id || g.token.is_cancelled() || now() >= g.deadline {
             return Err(ApiError::new("cancelled"));
         }
-        let field = if operation == "search" {
-            "query"
-        } else {
-            "url"
-        };
-        let item = payload[field].as_str().unwrap().to_string();
-        let (set, limit) = if operation == "search" {
-            (&mut g.searches, 2)
-        } else {
-            (&mut g.fetches, 5)
-        };
+        let item = payload["query"].as_str().unwrap().to_string();
+        let (set, limit) = (&mut g.searches, 2);
         if !set.contains(&item) && set.len() >= limit {
             return Err(ApiError::new("budget"));
         }
         set.insert(item);
-        if g.attempts >= 14 {
+        if g.attempts >= 4 {
             return Err(ApiError::new("budget"));
         }
         g.attempts += 1;
@@ -364,16 +410,11 @@ async fn api_request(
         if token.is_cancelled() {
             return Err(ApiError::new("cancelled"));
         }
-        let saved = load_key().await?;
-        let endpoint = if operation == "search" {
-            "https://api.deepseek.com/v1/tools/search"
-        } else {
-            "https://api.deepseek.com/v1/tools/fetch"
-        };
+        let saved = load_key(&state)?;
         let result = response(
             state
                 .client
-                .post(endpoint)
+                .post("https://api.deepseek.com/v1/tools/search")
                 .header(reqwest::header::AUTHORIZATION, bearer(&saved)?)
                 .json(&payload)
                 .send()
@@ -390,15 +431,7 @@ async fn api_request(
         }
         result
     };
-    let mut result = tokio::select! {biased; _=token.cancelled()=>Err(ApiError::new("cancelled")),r=tokio::time::timeout(Duration::from_millis(deadline.saturating_sub(now())),operation_future)=>r.unwrap_or_else(|_|Err(ApiError::new("cancelled")))};
-    if operation == "fetch" {
-        if let Ok(v) = &mut result {
-            if let Some(content) = v["content"].as_str() {
-                let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
-                v["content_hash"] = json!(hash);
-            }
-        }
-    }
+    let result = tokio::select! {biased; _=token.cancelled()=>Err(ApiError::new("cancelled")),r=tokio::time::timeout(Duration::from_millis(deadline.saturating_sub(now())),operation_future)=>r.unwrap_or_else(|_|Err(ApiError::new("cancelled")))};
     {
         let mut i = state.inner.lock().unwrap();
         let e = result.as_ref().err();
@@ -479,7 +512,7 @@ async fn query_balance(
         } => (generation, request_id, token),
     };
     let future = async {
-        let saved = load_key().await?;
+        let saved = load_key(&state)?;
         let value = response(
             state
                 .client
@@ -540,19 +573,7 @@ fn get_history(state: State<AppState>) -> Vec<Value> {
     let mut i = state.inner.lock().unwrap();
     prune_history(&mut i.disk.history);
     let _ = save_disk(&state, &i.disk);
-    i.disk.history.clone()
-}
-#[tauri::command]
-fn touch_cache(state: State<AppState>, run_id: String, result_id: String) {
-    let mut i = state.inner.lock().unwrap();
-    if let Some(r) = i.disk.history.iter_mut().find(|r| r["id"] == run_id) {
-        if let Some(hits) = r["hits"].as_array_mut() {
-            if let Some(h) = hits.iter_mut().find(|h| h["id"] == result_id) {
-                h["lastUsedAt"] = json!(now());
-            }
-        }
-    }
-    let _ = save_disk(&state, &i.disk);
+    search_history_view(&i.disk.history)
 }
 fn remove_history(i: &mut Inner, id: Option<String>) {
     if let Some(id) = id {
@@ -581,7 +602,6 @@ struct MetricInput {
     run_id: String,
     attempts: u8,
     logical_search: u8,
-    logical_fetch: u8,
     status: String,
     elapsed: u64,
 }
@@ -593,16 +613,12 @@ async fn record_metric(state: State<'_, AppState>, metric: MetricInput) -> Resul
         run_id,
         attempts,
         logical_search,
-        logical_fetch,
         status,
         elapsed,
     } = metric;
     let allowed = [
         "run_started",
         "search_batch_received",
-        "fetch_started",
-        "fetch_completed",
-        "result_opened",
         "source_opened",
         "source_copied",
         "query_edited",
@@ -618,7 +634,7 @@ async fn record_metric(state: State<'_, AppState>, metric: MetricInput) -> Resul
         return Ok(());
     }
     let mut i = state.inner.lock().unwrap();
-    let metric = json!({"schemaVersion":1,"event":event,"resultId":result_id,"runId":run_id,"time":now(),"attempts":attempts,"logicalSearch":logical_search,"logicalFetch":logical_fetch,"status":status,"elapsed":elapsed});
+    let metric = json!({"schemaVersion":1,"event":event,"resultId":result_id,"runId":run_id,"time":now(),"attempts":attempts,"logicalSearch":logical_search,"status":status,"elapsed":elapsed});
     append_metric(&state, &mut i.disk, metric)
 }
 #[tauri::command]
@@ -676,34 +692,87 @@ async fn open_source(url: String) -> Result<(), String> {
     .await
     .map_err(|_| "无法打开系统浏览器".to_string())?
 }
-fn show(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-        let _ = w.emit("focus-input", ());
+fn note_window(app: &tauri::AppHandle, action: &str, source: &str) {
+    if let Some(state) = app.try_state::<AppState>() {
+        let mut i = state.inner.lock().unwrap();
+        let _ = append_metric(
+            &state,
+            &mut i.disk,
+            json!({"schemaVersion":1,"event":"window_visibility","action":action,"source":source,"at":now()}),
+        );
     }
 }
-fn hide(app: &tauri::AppHandle) {
+fn show(app: &tauri::AppHandle, source: &'static str) {
+    if let Some(w) = app.get_webview_window("main") {
+        if w.show().is_ok() {
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+            let _ = w.emit("focus-input", ());
+            note_window(app, "shown", source);
+        }
+    }
+}
+fn hide(app: &tauri::AppHandle, source: &'static str) {
+    if let Some(state) = app.try_state::<AppState>() {
+        let _ = restore_hotkey(app, &state);
+    }
     if let Some(window) = app.get_webview_window("main") {
-        let first = {
-            let state = app.state::<AppState>();
-            let mut i = state.inner.lock().unwrap();
-            let first = !i.hidden_notice;
-            i.hidden_notice = true;
-            first
-        };
-        if first {
-            app.dialog().message("窗口将收起，应用仍在菜单栏 / 系统托盘运行。通过菜单中的“打开技术点快搜”返回，通过“退出”结束应用；macOS 也可按 Command+Q 退出。")
-                .title("如何返回和退出").show(move |_|{let _=window.hide();});
+        if window.hide().is_ok() {
+            note_window(app, "hidden", source);
+        }
+    }
+}
+#[tauri::command]
+fn set_panel_expanded(app: tauri::AppHandle, expanded: bool, message: Option<bool>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let mut width = window
+            .inner_size()
+            .map(|s| s.width as f64 / scale)
+            .unwrap_or(720.0)
+            .clamp(560.0, 1000.0);
+        let extra = if app.config().identifier == "com.patentquicksearch.visualqa" {
+            42.0
         } else {
-            let _ = window.hide();
+            0.0
+        };
+        let height = if !expanded {
+            252.0
+        } else if message.unwrap_or(false) {
+            390.0
+        } else {
+            660.0
+        };
+        let mut height: f64 = height + extra;
+        let monitor = window.current_monitor().ok().flatten();
+        if let Some(monitor) = &monitor {
+            width = width.min((monitor.work_area().size.width as f64 / scale - 24.0).max(560.0));
+            height = height.min((monitor.work_area().size.height as f64 / scale - 24.0).max(220.0));
+        }
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+        if let (Some(monitor), Ok(position)) = (monitor, window.outer_position()) {
+            let area = monitor.work_area();
+            let fitted = panel_position(
+                (position.x, position.y),
+                (
+                    area.position.x,
+                    area.position.y,
+                    area.size.width,
+                    area.size.height,
+                ),
+                (
+                    (width * scale).round() as u32,
+                    (height * scale).round() as u32,
+                ),
+                (12.0 * scale).round() as i32,
+            );
+            let _ = window.set_position(tauri::PhysicalPosition::new(fitted.0, fitted.1));
         }
     }
 }
 #[tauri::command]
 fn hide_window(app: tauri::AppHandle) {
-    hide(&app);
+    hide(&app, "command");
 }
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -713,12 +782,18 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _, event| {
                     if event.state() == ShortcutState::Pressed {
+                        if app
+                            .try_state::<AppState>()
+                            .is_some_and(|s| s.inner.lock().unwrap().hotkey_recording)
+                        {
+                            return;
+                        }
                         if app.get_webview_window("main").is_some_and(|w| {
                             w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false)
                         }) {
-                            hide(app);
+                            hide(app, "shortcut");
                         } else {
-                            show(app);
+                            show(app, "shortcut");
                         }
                     }
                 })
@@ -742,37 +817,45 @@ pub fn run() {
                 return Err(std::io::Error::other("不支持的本地数据版本，未覆盖原文件").into());
             }
             prune_history(&mut disk.history);
-            for r in &mut disk.history {
-                if matches!(r["status"].as_str(), Some("searching" | "reading")) {
-                    r["status"] = json!("stopped");
-                }
-                if let Some(hits) = r["hits"].as_array_mut() {
-                    for h in hits {
-                        if matches!(h["fetchStatus"].as_str(), Some("queued" | "loading")) {
-                            h["fetchStatus"] = json!("cancelled");
-                        }
-                    }
-                }
-            }
             let hotkey_error = app
                 .global_shortcut()
                 .register(disk.settings.hotkey.as_str())
                 .err()
                 .map(|_| "无法注册快捷键，请检查系统设置或换一个组合".into());
+            let mut stored_credential =
+                if app.config().identifier == "com.patentquicksearch.visualqa" {
+                    CredentialStore::disabled()
+                } else {
+                    CredentialStore::open(
+                        app.path()
+                            .app_config_dir()?
+                            .join("private/credentials-v1.json"),
+                    )
+                };
+            let mut credential = SessionCredential::default();
+            if let Ok(value) = stored_credential.copy_for_request() {
+                let _ = credential.replace(&value);
+            }
+            let credential_error = stored_credential.error().map(str::to_owned);
+            stored_credential.clear_memory();
             let state = AppState {
-                inner: Mutex::new(Inner {
+                credential_store: Arc::new(Mutex::new(stored_credential)),
+                inner: Arc::new(Mutex::new(Inner {
                     disk,
                     run: None,
                     known: HashMap::new(),
                     generation: 0,
+                    credential,
+                    credential_error,
                     balance: None,
                     balance_token: CancellationToken::new(),
                     balance_loading: false,
                     balance_request_id: 0,
                     cooldown: 0,
                     hotkey_error,
-                    hidden_notice: false,
-                }),
+                    hotkey_recording: false,
+                    recording_was_registered: false,
+                })),
                 directory,
                 client: reqwest::Client::builder()
                     .timeout(Duration::from_secs(15))
@@ -790,29 +873,20 @@ pub fn run() {
                     &MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?,
                 ],
             )?;
-            let mut rgba = vec![0u8; 32 * 32 * 4];
-            for y in 4..28 {
-                for x in 4..28 {
-                    let p = (y * 32 + x) * 4;
-                    rgba[p] = 25;
-                    rgba[p + 1] = 91;
-                    rgba[p + 2] = 75;
-                    rgba[p + 3] = 255;
-                }
-            }
             TrayIconBuilder::with_id("main-tray")
-                .icon(Image::new_owned(rgba, 32, 32))
+                .icon(Image::new_owned(tray_icon::rgba(36), 36, 36))
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("技术点快搜")
                 .menu(&menu)
                 .on_menu_event(|app, e| match e.id.as_ref() {
-                    "show" => show(app),
-                    "hide" => hide(app),
+                    "show" => show(app, "menu"),
+                    "hide" => hide(app, "menu"),
                     "quit" => app.exit(0),
                     _ => (),
                 })
                 .on_tray_icon_event(|tray, e| {
                     if let TrayIconEvent::DoubleClick { .. } = e {
-                        show(tray.app_handle());
+                        show(tray.app_handle(), "tray");
                     }
                 })
                 .build(app)?;
@@ -821,28 +895,35 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|w, e| {
+            if matches!(e, tauri::WindowEvent::Focused(false)) {
+                if let Some(state) = w.app_handle().try_state::<AppState>() {
+                    let _ = restore_hotkey(w.app_handle(), &state);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = e {
                 api.prevent_close();
-                hide(w.app_handle());
+                hide(w.app_handle(), "close");
             }
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
-            store_key,
-            delete_key,
+            set_local_key,
+            clear_local_key,
             update_settings,
+            begin_hotkey_recording,
+            end_hotkey_recording,
             begin_run,
             cancel_run,
             api_request,
             query_balance,
             save_run,
             get_history,
-            touch_cache,
             delete_history,
             record_metric,
             export_metrics,
             open_source,
-            hide_window
+            hide_window,
+            set_panel_expanded
         ])
         .build(tauri::generate_context!())
         .expect("无法启动技术点快搜");
@@ -855,7 +936,7 @@ pub fn run() {
                 ..
             }
         ) {
-            show(app);
+            show(app, "reopen");
         }
         if let tauri::RunEvent::Exit = event {
             let s = app.state::<AppState>();
@@ -863,6 +944,7 @@ pub fn run() {
             cancel_inner(&mut i);
             i.balance_token.cancel();
             i.balance = None;
+            i.credential.clear();
             let _ = save_disk(&s, &i.disk);
         }
     });
@@ -956,13 +1038,16 @@ mod state_tests {
             run: None,
             known: HashMap::new(),
             generation: 0,
+            credential: SessionCredential::default(),
+            credential_error: None,
             balance: None,
             balance_token: CancellationToken::new(),
             balance_loading: false,
             balance_request_id: 0,
             cooldown: 0,
             hotkey_error: None,
-            hidden_notice: false,
+            hotkey_recording: false,
+            recording_was_registered: false,
         }
     }
     fn request(i: &mut Inner) -> (u64, u64, CancellationToken) {
@@ -990,9 +1075,66 @@ mod state_tests {
             deadline: now() + 60000,
             attempts: 0,
             searches: HashSet::new(),
-            fetches: HashSet::new(),
         });
         token
+    }
+    #[test]
+    fn request_credentials_do_not_wait_for_configuration_file_operations() {
+        let mut i = inner();
+        set_session_credential(&mut i, "synthetic-shared-request-value").unwrap();
+        let state = Arc::new(AppState {
+            inner: Arc::new(Mutex::new(i)),
+            credential_store: Arc::new(Mutex::new(CredentialStore::disabled())),
+            directory: std::env::temp_dir(),
+            client: reqwest::Client::new(),
+            slots: Arc::new(Semaphore::new(2)),
+        });
+        let locked_file_store = state.credential_store.lock().unwrap();
+        let other = state.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            sender
+                .send(
+                    load_key(&other)
+                        .is_ok_and(|value| value.as_str() == "synthetic-shared-request-value"),
+                )
+                .unwrap();
+        });
+        assert!(receiver.recv_timeout(Duration::from_secs(1)).unwrap());
+        drop(locked_file_store);
+        thread.join().unwrap();
+    }
+    #[test]
+    fn session_change_and_clear_cancel_requests_without_persisting_credential() {
+        let mut i = inner();
+        set_session_credential(&mut i, "synthetic-first-session-value").unwrap();
+        let run_token = register(&mut i, "session-run");
+        stage_run(&mut i, run("session-run", 1)).unwrap();
+        let (g, r, t) = request(&mut i);
+        i.balance = Some(snapshot(g, r));
+        let generation = i.generation;
+        assert!(set_session_credential(&mut i, "invalid whitespace").is_err());
+        assert_eq!(i.generation, generation);
+        assert!(!run_token.is_cancelled());
+        set_session_credential(&mut i, "synthetic-next-session-value").unwrap();
+        assert!(run_token.is_cancelled());
+        assert!(t.is_cancelled());
+        assert!(i.balance.is_none());
+        assert!(complete_balance(&mut i, g, r, &t, Ok(snapshot(g, r))).is_err());
+        let encoded = serde_json::to_string(&i.disk).unwrap();
+        for value in [
+            "synthetic-first-session-value",
+            "synthetic-next-session-value",
+        ] {
+            assert!(!encoded.contains(value));
+        }
+        assert_eq!(
+            i.credential.copy_for_request().unwrap().as_str(),
+            "synthetic-next-session-value"
+        );
+        clear_session_credential(&mut i);
+        assert!(!i.credential.is_configured());
+        assert_eq!(i.disk.history.len(), 1);
     }
     #[test]
     fn successful_balance_is_cached_but_refresh_starts_exactly_one_request() {
@@ -1103,7 +1245,8 @@ mod state_tests {
         let directory =
             std::env::temp_dir().join(format!("patent-disk-test-{}-{}", std::process::id(), now()));
         let state = AppState {
-            inner: Mutex::new(i),
+            inner: Arc::new(Mutex::new(i)),
+            credential_store: Arc::new(Mutex::new(CredentialStore::disabled())),
             directory: directory.clone(),
             client: reqwest::Client::new(),
             slots: Arc::new(Semaphore::new(2)),

@@ -33,7 +33,7 @@ pub fn valid_key(input: &str) -> Result<String, String> {
     Ok(key.into())
 }
 pub fn valid_url(raw: &str) -> bool {
-    if raw.chars().count() > 8192 {
+    if raw.chars().count() > 8192 || raw.trim() != raw || raw.chars().any(char::is_control) {
         return false;
     }
     Url::parse(raw).is_ok_and(|u| {
@@ -52,10 +52,9 @@ pub fn valid_payload(operation: &str, p: &Value) -> bool {
                 && p.get("ori_question")
                     .and_then(Value::as_str)
                     .is_some_and(|q| !q.trim().is_empty() && q.chars().count() <= 100)
-                && p.get("count").and_then(Value::as_u64) == Some(10)
+                && p.get("count").and_then(Value::as_u64) == Some(50)
                 && p.get("need_content").and_then(Value::as_bool) == Some(false)
         }
-        "fetch" => p.get("url").and_then(Value::as_str).is_some_and(valid_url),
         _ => false,
     }
 }
@@ -130,44 +129,73 @@ pub fn prune_history(history: &mut Vec<Value>) {
     });
     history.sort_by_key(|r| std::cmp::Reverse(r["createdAt"].as_u64().unwrap_or(0)));
     history.truncate(50);
-    let mut caches = Vec::new();
-    let mut total = 0;
-    for (ri, r) in history.iter_mut().enumerate() {
-        if let Some(hits) = r["hits"].as_array_mut() {
-            for (hi, h) in hits.iter_mut().enumerate() {
-                let size = h["content"].as_str().map_or(0, str::len);
-                let fresh = h["fetchedAt"]
-                    .as_u64()
-                    .is_some_and(|n| time.saturating_sub(n) <= 86400000);
-                if size > 0 && !fresh {
-                    h.as_object_mut().unwrap().remove("content");
-                    h["cacheCleared"] = Value::Bool(true);
-                } else if size > 0 {
-                    total += size;
-                    caches.push((
-                        h["lastUsedAt"]
-                            .as_u64()
-                            .or_else(|| h["fetchedAt"].as_u64())
-                            .unwrap_or(0),
-                        ri,
-                        hi,
-                        size,
-                    ));
+    // Keep legacy stored body fields unchanged; the current UI receives a projection.
+}
+pub fn search_history_view(history: &[Value]) -> Vec<Value> {
+    history
+        .iter()
+        .cloned()
+        .map(|mut run| {
+            let Some(object) = run.as_object_mut() else {
+                return run;
+            };
+            object.remove("logicalFetch");
+            if let Some(errors) = object.get_mut("errors").and_then(Value::as_array_mut) {
+                errors.retain(|v| {
+                    v.as_str().is_some_and(|s| {
+                        !["正文", "抓取", "读取原文", "Fetch"]
+                            .iter()
+                            .any(|term| s.contains(term))
+                    })
+                });
+            }
+            if let Some(hits) = object.get_mut("hits").and_then(Value::as_array_mut) {
+                for hit in hits {
+                    if let Some(hit) = hit.as_object_mut() {
+                        for field in [
+                            "content",
+                            "preview",
+                            "fetchStatus",
+                            "fetchedAt",
+                            "truncated",
+                            "cacheCleared",
+                            "lastUsedAt",
+                            "contentHash",
+                            "error",
+                        ] {
+                            hit.remove(field);
+                        }
+                    }
                 }
             }
-        }
-    }
-    caches.sort_by_key(|c| c.0);
-    for (_, ri, hi, size) in caches {
-        if total <= 50 * 1024 * 1024 {
-            break;
-        }
-        let h = &mut history[ri]["hits"][hi];
-        h.as_object_mut().unwrap().remove("content");
-        h["cacheCleared"] = Value::Bool(true);
-        total -= size;
-    }
+            let old = run["status"].as_str().unwrap_or("");
+            let has_hits = run["hits"].as_array().is_some_and(|h| !h.is_empty());
+            let has_errors = run["errors"].as_array().is_some_and(|e| !e.is_empty());
+            let pending =
+                run["searchDone"].as_u64().unwrap_or(0) < run["searchTotal"].as_u64().unwrap_or(1);
+            if matches!(old, "searching" | "reading") && pending {
+                run["status"] = Value::String("stopped".into());
+            } else if old == "reading" || (old == "partial" && !has_errors) {
+                run["status"] = Value::String(
+                    if has_errors {
+                        if has_hits {
+                            "partial"
+                        } else {
+                            "failed"
+                        }
+                    } else if has_hits {
+                        "complete"
+                    } else {
+                        "empty"
+                    }
+                    .into(),
+                );
+            }
+            run
+        })
+        .collect()
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,25 +240,25 @@ mod tests {
         }
     }
     #[test]
-    fn history_retention_and_cache() {
+    fn history_retention_preserves_legacy_fields() {
         let mut h = vec![
             json!({"createdAt":now()-31*86400000,"hits":[]}),
             json!({"createdAt":now(),"hits":[{"fetchedAt":now()-2*86400000,"content":"body","preview":"preview"}]}),
         ];
         prune_history(&mut h);
         assert_eq!(h.len(), 1);
-        assert!(h[0]["hits"][0]["content"].is_null());
+        assert_eq!(h[0]["hits"][0]["content"], "body");
         assert_eq!(h[0]["hits"][0]["preview"], "preview");
     }
     #[test]
     fn search_contract() {
         assert!(valid_payload(
             "search",
-            &json!({"query":"技术 site:patents.google.com","ori_question":"技术","count":10,"need_content":false})
+            &json!({"query":"技术 site:patents.google.com","ori_question":"技术","count":50,"need_content":false})
         ));
         assert!(!valid_payload(
             "search",
-            &json!({"query":"a".repeat(129),"ori_question":"a","count":10,"need_content":false})
+            &json!({"query":"a".repeat(129),"ori_question":"a","count":50,"need_content":false})
         ));
     }
 }
@@ -251,26 +279,44 @@ mod retention_and_balance_tests {
         assert_eq!(history[49]["id"], 49);
     }
     #[test]
-    fn fifty_mib_budget_evicts_least_recently_used_body_not_newest_task() {
-        let time = now();
-        let body = "x".repeat(20 * 1024 * 1024);
-        let mut history = vec![
-            json!({"createdAt":time,"hits":[{"content":body,"fetchedAt":time,"lastUsedAt":time-100,"preview":"p0"}]}),
-            json!({"createdAt":time-1,"hits":[{"content":body,"fetchedAt":time,"lastUsedAt":time-1,"preview":"p1"}]}),
-            json!({"createdAt":time-2,"hits":[{"content":body,"fetchedAt":time,"lastUsedAt":time-50,"preview":"p2"}]}),
+    fn legacy_body_is_hidden_in_view_without_mutating_stored_history() {
+        let history = vec![
+            json!({"createdAt":now(),"status":"reading","searchDone":2,"searchTotal":2,"logicalFetch":3,"errors":["正文不可用"],"hits":[{"originalUrl":"https://example.com/a?x=a%2Fb#part","title":"legacy title","snippet":"search summary","content":"legacy body","preview":"legacy preview","fetchStatus":"failed","error":"body error"}]}),
         ];
-        prune_history(&mut history);
-        assert!(history[0]["hits"][0]["content"].is_null());
-        assert_eq!(history[0]["hits"][0]["preview"], "p0");
-        assert!(history[1]["hits"][0]["content"].is_string());
-        assert!(history[2]["hits"][0]["content"].is_string());
-        let size: usize = history
-            .iter()
-            .flat_map(|r| r["hits"].as_array().unwrap())
-            .filter_map(|h| h["content"].as_str())
-            .map(str::len)
-            .sum();
-        assert!(size <= 50 * 1024 * 1024);
+        let before = history.clone();
+        let view = search_history_view(&history);
+        assert_eq!(history, before);
+        assert_eq!(view[0]["status"], "complete");
+        assert!(view[0]["logicalFetch"].is_null());
+        assert!(view[0]["hits"][0]["content"].is_null());
+        assert!(view[0]["hits"][0]["error"].is_null());
+        assert_eq!(view[0]["hits"][0]["snippet"], "search summary");
+        assert_eq!(
+            view[0]["hits"][0]["originalUrl"],
+            "https://example.com/a?x=a%2Fb#part"
+        );
+    }
+    #[test]
+    fn removed_fetch_operation_is_rejected_before_network_or_credential_work() {
+        assert!(!valid_payload(
+            "fetch",
+            &json!({"url":"https://example.com/a"})
+        ));
+        assert!(!valid_payload(
+            "search",
+            &json!({"query":"public","ori_question":"public","count":50,"need_content":true})
+        ));
+        for bad in [
+            "javascript:alert(1)",
+            "file:///tmp/a",
+            "data:text/html,hello",
+            "https://u:p@example.com",
+            "\nhttps://example.com",
+            "https://example.com/\nfoo",
+        ] {
+            assert!(!valid_url(bad));
+        }
+        assert!(valid_url("https://example.com/a?x=a%2Fb#part"));
     }
     #[test]
     fn multi_currency_exact_strings_are_preserved_and_duplicate_currency_is_rejected() {
@@ -289,6 +335,52 @@ mod retention_and_balance_tests {
         assert_eq!(b.request_id, 9);
         assert!(
             parse_balance(json!({"is_available":true,"balance_infos":[cny,cny]}), 0, 1).is_err()
+        );
+    }
+}
+
+pub fn panel_position(
+    position: (i32, i32),
+    area: (i32, i32, u32, u32),
+    size: (u32, u32),
+    margin: i32,
+) -> (i32, i32) {
+    let left = area.0.saturating_add(margin);
+    let top = area.1.saturating_add(margin);
+    let right = area
+        .0
+        .saturating_add(area.2 as i32)
+        .saturating_sub(size.0 as i32)
+        .saturating_sub(margin)
+        .max(left);
+    let bottom = area
+        .1
+        .saturating_add(area.3 as i32)
+        .saturating_sub(size.1 as i32)
+        .saturating_sub(margin)
+        .max(top);
+    (position.0.clamp(left, right), position.1.clamp(top, bottom))
+}
+#[cfg(test)]
+mod panel_tests {
+    use super::*;
+    #[test]
+    fn expanding_panel_stays_in_work_area_including_negative_and_scaled_monitors() {
+        assert_eq!(
+            panel_position((320, 320), (0, 0, 1440, 900), (720, 702), 12),
+            (320, 186)
+        );
+        assert_eq!(
+            panel_position((-100, 100), (-1920, 0, 1920, 1080), (720, 660), 12),
+            (-732, 100)
+        );
+        assert_eq!(
+            panel_position((600, 800), (0, 40, 2160, 1400), (1080, 1053), 18),
+            (600, 369)
+        );
+        assert_eq!(
+            panel_position((200, 100), (0, 0, 1440, 900), (720, 252), 12),
+            (200, 100)
         );
     }
 }

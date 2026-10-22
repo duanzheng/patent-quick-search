@@ -1,3 +1,7 @@
+> **当前产品已改为Search-only**：[默认浏览器来源交付](source-opening-update.md)。下文为旧阶段记录，正文/Fetch故障不是新版未完成门槛，旧暂存包不用于新验收。
+
+> **最新状态（2026-10-22）**：[Spotlight与本机凭据更新](spotlight-update.md)优先。下文保留历史执行记录；系统凭据方案和旧包状态不代表当前版本。
+
 > 当前状态与逐项证据已更新至 [development-status.md](development-status.md) 和 [acceptance-results.md](acceptance-results.md)。以下保留前阶段原文，旧的“待同步/测试计数”不代表当前状态。
 
 # 0.1 开发与验收报告

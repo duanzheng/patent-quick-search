@@ -1,1 +1,12 @@
-{"identifier":"main-local","description":"Only the bundled local main window receives IPC; remote pages are never loaded.","windows":["main"],"permissions":["core:default","core:window:allow-hide"]}
+{
+  "identifier": "main-local",
+  "description": "Only the bundled local main window receives IPC; remote pages are never loaded.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-start-dragging"
+  ]
+}

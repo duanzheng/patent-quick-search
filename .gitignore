@@ -38,3 +38,7 @@ target/
 # Machine-specific diagnostics and usage traces stay local
 /doc/evidence/*
 !/doc/evidence/README.md
+
+# User-approved local API credential configuration is never source
+**/credentials-v1.json
+**/.credentials-*.tmp

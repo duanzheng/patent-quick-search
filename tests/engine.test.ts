@@ -1,91 +1,49 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Engine } from '../src/engine';
-import type { Bridge } from '../src/types';
+import { openOriginalSource } from '../src/source';
+import type { Bridge, Run } from '../src/types';
 const batch=(n=10)=>({results:Array.from({length:n},(_,i)=>({url:`https://example.com/${i}`,title:`title ${i}`,snippet:'summary',summary:'long summary'}))});
 const flush=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
 function fixture(handler:(a:Record<string,unknown>)=>Promise<unknown>){
-  const calls:{command:string;args:Record<string,unknown>}[]=[];const bridge:Bridge=async<T>(command:string,args:Record<string,unknown>={})=>{calls.push({command,args:structuredClone(args)});return (command==='api_request'?await handler(args):undefined)as T;};
-  return {engine:new Engine(bridge),calls,api:()=>calls.filter(c=>c.command==='api_request')};
+  const calls:{command:string;args:Record<string,unknown>}[]=[];const bridge:Bridge=async<T,>(command:string,args:Record<string,unknown>={})=>{calls.push({command,args:structuredClone(args)});return (command==='api_request'?await handler(args):undefined)as T;};
+  return {engine:new Engine(bridge),bridge,calls,api:()=>calls.filter(c=>c.command==='api_request')};
 }
-describe('offline scheduler with synthetic transport, not real API acceptance',()=>{
-  beforeEach(()=>{vi.useFakeTimers();});afterEach(()=>vi.useRealTimers());
-  it('shows the fast batch while a second Search is pending and fetches only first 3',async()=>{let slowResolve!:(v:unknown)=>void;const slow=new Promise(resolve=>{slowResolve=resolve;});const f=fixture(async a=>{const p=a.payload as Record<string,unknown>;return a.operation==='fetch'?{title:'',content:'body'}:p.query===p.ori_question?slow:batch();});await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.hits).toHaveLength(10);expect(f.engine.run?.searchDone).toBe(1);slowResolve(batch());await flush();expect(f.engine.run?.logicalFetch).toBe(3);expect(f.api().filter(c=>c.args.operation==='fetch')).toHaveLength(3);expect(f.engine.run?.hits).toHaveLength(10);f.engine.stop();});
-  it('enforces combined concurrency, duplicate submission and 5 distinct fetches',async()=>{let active=0,peak=0;const releases:(()=>void)[]=[];const f=fixture(a=>new Promise(resolve=>{active++;peak=Math.max(peak,active);releases.push(()=>{active--;resolve(a.operation==='search'?batch():{title:'',content:'body'});});}));await f.engine.start('技术','mixed');await f.engine.start('技术','mixed');expect(f.api()).toHaveLength(2);for(let i=0;i<8;i++){releases.shift()?.();await flush();}expect(peak).toBeLessThanOrEqual(2);for(const h of f.engine.run!.hits)f.engine.fetch(h.id);expect(f.engine.run?.logicalFetch).toBe(5);for(let i=0;i<8;i++){releases.shift()?.();await flush();}expect(f.api().filter(c=>c.args.operation==='fetch')).toHaveLength(5);f.engine.stop();});
-  it('ignores old responses after stop, replacement and history restore',async()=>{let done!:(v:unknown)=>void;const f=fixture(a=>a.operation==='search'?new Promise(r=>{done=r;}):Promise.resolve({title:'',content:'body'}));await f.engine.start('旧词','patents');f.engine.stop();done(batch());await flush();expect(f.engine.run?.hits).toHaveLength(0);expect(f.engine.run?.status).toBe('stopped');expect(f.api()).toHaveLength(1);await f.engine.start('新词','patents');expect(f.engine.run?.query).toBe('新词');f.engine.stop();});
-  it('retries transient errors once, respecting Retry-After and the attempt budget',async()=>{let n=0;const f=fixture(async()=>{n++;throw{kind:'http',status:429,retryAfter:2};});await f.engine.start('技术','patents');await flush();expect(n).toBe(1);await vi.advanceTimersByTimeAsync(1999);expect(n).toBe(1);await vi.advanceTimersByTimeAsync(1);await flush();expect(n).toBe(2);expect(f.engine.run?.attempts).toBe(2);expect(f.engine.run?.status).toBe('failed');f.engine.stop();});
-  it('does not retry beyond remaining deadline or retry permanent errors',async()=>{for(const e of [{kind:'http',status:429,retryAfter:50},{kind:'http',status:400},{kind:'http',status:403},{kind:'http',status:404}]){const f=fixture(async()=>{throw e;});await f.engine.start('技术','patents');await flush();expect(f.api()).toHaveLength(1);f.engine.stop();}});
-  it('auth errors stop the queue and do not fabricate results',async()=>{const f=fixture(async()=>{throw{kind:'http',status:401};});await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.status).toBe('stopped');expect(f.engine.run?.hits).toHaveLength(0);expect(f.engine.run?.errors.join()).toContain('密钥无效');f.engine.stop();});
-  it('expires at 60s and blocks late results and manual fetch',async()=>{let done!:(v:unknown)=>void;const f=fixture(()=>new Promise(r=>{done=r;}));await f.engine.start('技术','mixed');await vi.advanceTimersByTimeAsync(60000);done(batch());await flush();expect(f.engine.run?.status).toBe('expired');expect(f.engine.run?.hits).toHaveLength(0);expect(f.api()).toHaveLength(2);});
-  it('keeps successful empty searches distinct from failures, and rejects empty fetch body',async()=>{const f=fixture(async a=>a.operation==='search'?batch(0):{title:'',content:''});await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.status).toBe('empty');f.engine.stop();const g=fixture(async a=>a.operation==='search'?batch(1):{title:'',content:' \n '});await g.engine.start('技术','mixed');await flush();expect(g.engine.run?.hits[0].fetchStatus).toBe('empty');expect(g.engine.run?.hits[0].content?.trim()).toBe('');g.engine.stop();});
-});
-
-describe('additional offline race and budget checks',()=>{
+describe('Search-only scheduler with synthetic transport, no real API acceptance',()=>{
   beforeEach(()=>vi.useFakeTimers());afterEach(()=>vi.useRealTimers());
-  it('caps all retries at fourteen attempts, including manual fetches',async()=>{const seen=new Map<string,number>();const f=fixture(async a=>{const p=a.payload as Record<string,unknown>;const id=String(p.query??p.url);const n=(seen.get(id)??0)+1;seen.set(id,n);if(n===1)throw{kind:'network'};return a.operation==='search'?batch():{title:'',content:'body'};});await f.engine.start('技术','mixed');await vi.advanceTimersByTimeAsync(4000);await flush();for(const h of f.engine.run!.hits)f.engine.fetch(h.id);await vi.advanceTimersByTimeAsync(3000);await flush();expect(f.engine.run?.attempts).toBe(14);expect(f.engine.run?.logicalSearch).toBe(2);expect(f.engine.run?.logicalFetch).toBe(5);expect(Math.max(...seen.values())).toBe(2);f.engine.stop();});
-  it('starts a new run after completion and restores history without a new API call',async()=>{const f=fixture(async a=>a.operation==='search'?batch(0):{title:'',content:'body'});await f.engine.start('技术','mixed');await flush();const old=structuredClone(f.engine.run!);await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.id).not.toBe(old.id);const count=f.api().length;f.engine.restore(old);await flush();expect(f.api()).toHaveLength(count);expect(f.engine.run?.id).toBe(old.id);f.engine.stop();});
-  it('does not let changing a draft or showing results enqueue network work',async()=>{const f=fixture(async a=>a.operation==='search'?batch():{title:'',content:'body'});await f.engine.start('技术','mixed');await flush();const count=f.api().length;f.engine.action('query_edited');f.engine.action('source_copied');expect(f.api()).toHaveLength(count);f.engine.stop();});
-});
+  it('shows a fast batch immediately and never schedules automatic Fetch',async()=>{
+    let release!:(v:unknown)=>void;const slow=new Promise(r=>{release=r;});const f=fixture(a=>(a.payload as Record<string,unknown>).query===(a.payload as Record<string,unknown>).ori_question?slow:Promise.resolve(batch()));
+    await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.hits).toHaveLength(10);expect(f.engine.run?.searchDone).toBe(1);release(batch());await flush();
+    expect(f.api()).toHaveLength(2);expect(f.api().every(c=>c.args.operation==='search'&&(c.args.payload as Record<string,unknown>).need_content===false)).toBe(true);expect(f.engine.run?.status).toBe('complete');expect('fetch' in f.engine).toBe(false);f.engine.stop();
+  });
+  it('keeps concurrency at two and ignores a duplicate running submission',async()=>{
+    let active=0,peak=0;const releases:(()=>void)[]=[];const f=fixture(()=>new Promise(r=>{active++;peak=Math.max(active,peak);releases.push(()=>{active--;r(batch());});}));await f.engine.start('技术','mixed');await f.engine.start('技术','mixed');expect(f.api()).toHaveLength(2);releases.forEach(r=>r());await flush();expect(peak).toBe(2);expect(f.engine.run?.status).toBe('complete');f.engine.stop();
+  });
+  it('ignores delayed results after stop',async()=>{let done!:(v:unknown)=>void;const f=fixture(()=>new Promise(r=>{done=r;}));await f.engine.start('技术','patents');f.engine.stop();done(batch());await flush();expect(f.engine.run?.hits).toHaveLength(0);expect(f.engine.run?.status).toBe('stopped');});
+  it('ignores replaced round results',async()=>{const finish:((v:unknown)=>void)[]=[];const f=fixture(()=>new Promise(r=>finish.push(r)));await f.engine.start('旧词','mixed');await f.engine.start('新词','mixed');finish[0](batch());finish[1](batch());await flush();expect(f.engine.run?.query).toBe('新词');expect(f.engine.run?.hits).toHaveLength(0);finish[2](batch(1));finish[3](batch(1));await flush();expect(f.engine.run?.hits).toHaveLength(1);f.engine.stop();});
+  it('retries a transient Search once and respects Retry-After',async()=>{let n=0;const f=fixture(async()=>{n++;throw{kind:'http',status:429,retryAfter:2};});await f.engine.start('技术','patents');await flush();expect(n).toBe(1);await vi.advanceTimersByTimeAsync(1999);expect(n).toBe(1);await vi.advanceTimersByTimeAsync(1);await flush();expect(n).toBe(2);expect(f.engine.run?.status).toBe('failed');f.engine.stop();});
+  it('caps two Search requests and their retries at four attempts, with zero Fetch',async()=>{const seen=new Map<string,number>();const f=fixture(async a=>{const q=String((a.payload as Record<string,unknown>).query);const n=(seen.get(q)??0)+1;seen.set(q,n);if(n===1)throw{kind:'network'};return batch();});await f.engine.start('技术','mixed');await vi.advanceTimersByTimeAsync(2000);await flush();expect(f.engine.run?.attempts).toBe(4);expect(f.api()).toHaveLength(4);expect(f.api().every(c=>c.args.operation==='search')).toBe(true);expect(Math.max(...seen.values())).toBe(2);f.engine.stop();});
+  it('does not retry permanent errors or a retry that cannot fit the deadline',async()=>{for(const e of [{kind:'http',status:429,retryAfter:50},{kind:'http',status:400},{kind:'http',status:403},{kind:'http',status:404}]){const f=fixture(async()=>{throw e;});await f.engine.start('技术','patents');await flush();expect(f.api()).toHaveLength(1);f.engine.stop();}});
+  it('expires at sixty seconds without accepting late results',async()=>{let done!:(v:unknown)=>void;const f=fixture(()=>new Promise(r=>{done=r;}));await f.engine.start('技术','mixed');await vi.advanceTimersByTimeAsync(60000);done(batch());await flush();expect(f.engine.run?.status).toBe('expired');expect(f.engine.run?.hits).toHaveLength(0);expect(f.api()).toHaveLength(2);});
+  it('distinguishes empty success, partial Search failure and failed Search',async()=>{const empty=fixture(async()=>batch(0));await empty.engine.start('技术','mixed');await flush();expect(empty.engine.run?.status).toBe('empty');empty.engine.stop();const partial=fixture(async a=>{const p=a.payload as Record<string,unknown>;if(p.query===p.ori_question)throw{kind:'http',status:403};return batch(1);});await partial.engine.start('技术','mixed');await flush();expect(partial.engine.run?.status).toBe('partial');expect(partial.engine.run?.hits).toHaveLength(1);partial.engine.stop();const failed=fixture(async()=>{throw{kind:'http',status:400};});await failed.engine.start('技术','mixed');await flush();expect(failed.engine.run?.status).toBe('failed');failed.engine.stop();});
+  it('stops on 401 or 402 without querying balance automatically',async()=>{for(const status of [401,402]){const f=fixture(async()=>{throw{kind:'http',status};});await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.status).toBe('stopped');expect(f.calls.some(c=>c.command==='query_balance')).toBe(false);expect(f.api().every(c=>c.args.operation==='search')).toBe(true);}});
+  it('starts a new completed round and restores history without requests',async()=>{const f=fixture(async()=>batch(0));await f.engine.start('旧任务','mixed');await flush();const old=structuredClone(f.engine.run!);await f.engine.start('新任务','mixed');await flush();expect(f.engine.run?.id).not.toBe(old.id);const count=f.api().length;f.engine.restore(old);await flush();expect(f.api()).toHaveLength(count);expect(f.engine.run?.status).toBe('empty');f.engine.stop();});
+  it('restores legacy body-bearing history without mutation, Fetch state or body errors',async()=>{const f=fixture(async()=>batch(1));await f.engine.start('技术','mixed');await flush();const legacy={...structuredClone(f.engine.run!),status:'reading',logicalFetch:3,errors:['正文抓取失败'],hits:f.engine.run!.hits.map(h=>({...h,fetchStatus:'loading',content:'legacy body',preview:'legacy preview',error:'old body failure'}))} as unknown as Run;const before=JSON.stringify(legacy);const count=f.api().length;f.engine.restore(legacy);expect(JSON.stringify(legacy)).toBe(before);expect(f.api()).toHaveLength(count);expect(f.engine.run?.status).toBe('complete');expect(f.engine.run?.errors).toEqual([]);expect(f.engine.run?.hits[0].snippet).toBe('summary');expect(f.engine.run?.hits[0]).not.toHaveProperty('content');expect(f.engine.run).not.toHaveProperty('logicalFetch');f.engine.stop();});
+  it('restores an unfinished Search snapshot as stopped',async()=>{const f=fixture(()=>new Promise(()=>{}));await f.engine.start('技术','mixed');const saved=structuredClone(f.engine.run!);const count=f.api().length;f.engine.restore(saved);await flush();expect(f.engine.run?.status).toBe('stopped');expect(f.api()).toHaveLength(count);});
+  it('editing/copy events do not add network work',async()=>{const f=fixture(async()=>batch());await f.engine.start('技术','mixed');await flush();const count=f.api().length;f.engine.action('query_edited');f.engine.action('source_copied');expect(f.api()).toHaveLength(count);f.engine.stop();});
+  it('opens first original URL unchanged after deduplication, without new API requests',async()=>{const urls=['https://patents.google.com/patent/JPH07314219A/en?ref=a%2Fb#2','https://patents.google.com/patent/JPH07314219A/ja'];const f=fixture(async()=>({results:urls.map(url=>({url,title:'public title',snippet:'returned snippet',summary:'returned summary'}))}));await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.hits).toHaveLength(1);const count=f.api().length;for(let i=0;i<3;i++)await openOriginalSource(f.bridge,f.engine.run!.hits[0].originalUrl);expect(f.calls.filter(c=>c.command==='open_source').map(c=>c.args.url)).toEqual([urls[0],urls[0],urls[0]]);expect(f.api()).toHaveLength(count);f.engine.stop();});
+  it('requests up to fifty per original query, preserves order and deduplicates without paging fields',async()=>{
+    let n=0;const f=fixture(async()=>({results:Array.from({length:50},(_,i)=>({url:`https://example.com/${i+(n===0?0:25)}`,title:`title ${i+(n===0?0:25)}`,snippet:'summary',summary:'long summary'})),sequence:n++}));
+    await f.engine.start('夹爪 -塑料','mixed');await flush();expect(f.api()).toHaveLength(2);
+    expect(f.api().map(c=>(c.args.payload as Record<string,unknown>).query)).toEqual(['夹爪 -塑料 site:patents.google.com','夹爪 -塑料']);
+    for(const call of f.api()){expect(call.args.operation).toBe('search');expect(call.args.payload).toEqual({query:(call.args.payload as Record<string,unknown>).query,ori_question:'夹爪 -塑料',count:50,need_content:false});}
+    expect(f.engine.run?.hits).toHaveLength(75);expect(f.engine.run?.hits.map(h=>h.originalUrl)).toEqual(Array.from({length:75},(_,i)=>`https://example.com/${i}`));expect(f.engine.run?.hits[25].matches).toHaveLength(2);f.engine.stop();
+  });
+  it('sends explicit-site syntax once even in patents mode and keeps returned non-GP sources',async()=>{
+    const query='"elastic clamp" site:github.com OR site:wikipedia.org -site:example.com lang:en';const f=fixture(async()=>batch(2));
+    await f.engine.start(query,'patents');await flush();expect(f.api()).toHaveLength(1);
+    expect(f.api()[0].args.payload).toEqual({query,ori_question:query,count:50,need_content:false});
+    expect(f.engine.run?.hits).toHaveLength(2);expect(f.engine.run?.scope).toBe('patents');
+    const saved=structuredClone(f.engine.run!);f.engine.restore(saved);expect(f.engine.run?.query).toBe(query);expect(f.api()).toHaveLength(1);f.engine.stop();
+  });
 
-describe('terminal history and manual reading status',()=>{
-  beforeEach(()=>vi.useFakeTimers());afterEach(()=>vi.useRealTimers());
-  it('preserves the terminal history status when starting another completed round',async()=>{const f=fixture(async()=>batch(0));await f.engine.start('旧任务','mixed');await flush();const id=f.engine.run!.id;await f.engine.start('新任务','mixed');await flush();const saves=f.calls.filter(c=>c.command==='save_run'&&(c.args.run as {id:string}).id===id);expect((saves.at(-1)!.args.run as {status:string}).status).toBe('empty');f.engine.stop();});
-  it('marks manual fetch as reading before transport completes',async()=>{let resolve!:(v:unknown)=>void;let fetches=0;const f=fixture(async a=>a.operation==='search'?batch():++fetches<=3?{title:'',content:'body'}:new Promise(r=>{resolve=r;}));await f.engine.start('技术','mixed');await flush();expect(f.engine.run?.status).toBe('complete');f.engine.fetch(f.engine.run!.hits[3].id);expect(f.engine.run?.status).toBe('reading');resolve({title:'',content:'body'});await flush();expect(f.engine.run?.status).toBe('complete');f.engine.stop();});
-});
-
-describe('restored snapshots and additional failure races',()=>{
-  beforeEach(()=>vi.useFakeTimers());afterEach(()=>vi.useRealTimers());
-  it('restores an in-progress snapshot as stopped without reopening its network budget',async()=>{
-    const f=fixture(async a=>a.operation==='search'?batch(4):new Promise(()=>{}));await f.engine.start('公开技术','mixed');await flush();
-    const snapshot=structuredClone(f.engine.run!);expect(snapshot.hits.some(h=>h.fetchStatus==='loading')).toBe(true);
-    const count=f.api().length;f.engine.restore(snapshot);f.engine.fetch(f.engine.run!.hits[3].id);await flush();
-    expect(f.engine.run?.status).toBe('stopped');expect(f.engine.run?.hits.some(h=>['queued','loading'].includes(h.fetchStatus))).toBe(false);expect(f.api()).toHaveLength(count);f.engine.stop();
-  });
-  it('does not repeat a successful or failed Fetch when its card is clicked repeatedly',async()=>{
-    const f=fixture(async a=>{if(a.operation==='search')return batch(4);throw{kind:'http',status:403};});await f.engine.start('公开技术','mixed');await flush();
-    const failed=f.engine.run!.hits[0];expect(failed.fetchStatus).toBe('failed');const count=f.api().length;for(let i=0;i<10;i++)f.engine.fetch(failed.id);await flush();expect(f.api()).toHaveLength(count);f.engine.stop();
-  });
-  it('retains returned content after stop and ignores a delayed Fetch completion',async()=>{
-    let finish!:(v:unknown)=>void;let count=0;const f=fixture(async a=>a.operation==='search'?batch(4):++count===1?{title:'',content:'real fixture body'}:new Promise(r=>{finish=r;}));
-    await f.engine.start('公开技术','mixed');await flush();const before=f.engine.run!.hits[0].content;f.engine.stop();finish({title:'',content:'late fixture body'});await flush();
-    expect(f.engine.run?.hits[0].content).toBe(before);expect(f.engine.run?.hits.filter(h=>h.content==='late fixture body')).toHaveLength(0);expect(f.engine.run?.hits.some(h=>h.fetchStatus==='cancelled')).toBe(true);
-  });
-  it('distinguishes a partial Search failure from an empty successful round',async()=>{
-    const f=fixture(async a=>{const p=a.payload as Record<string,unknown>;if(a.operation==='fetch')return{title:'',content:'body'};if(p.query===p.ori_question)throw{kind:'http',status:403};return batch(1);});
-    await f.engine.start('公开技术','mixed');await flush();expect(f.engine.run?.status).toBe('partial');expect(f.engine.run?.hits).toHaveLength(1);f.engine.stop();
-  });
-  it('stops both search and fetch scheduling on 402 and does not query balance automatically',async()=>{
-    const f=fixture(async()=>{throw{kind:'http',status:402};});await f.engine.start('公开技术','mixed');await flush();expect(f.engine.run?.status).toBe('stopped');expect(f.engine.run?.errors.join()).toContain('账户余额不足');expect(f.calls.some(c=>c.command==='query_balance')).toBe(false);
-  });
-});
-
-
-describe('Search to Fetch contract audit with synthetic responses only',()=>{
-  beforeEach(()=>vi.useFakeTimers());afterEach(()=>vi.useRealTimers());
-  it('passes the first original Search URL unchanged to automatic and manual Fetch',async()=>{
-    const urls=['https://patents.google.com/patent/JPH07314219A/en?ref=a%2Fb#2','https://patents.google.com/patent/JPH07314219A/ja','https://example.com/patent%20copy.pdf#page=2','https://example.com/article?q=%E5%A4%B9%E7%88%AA&x=a%2Fb#part','https://example.com/manual?x=1&x=2'];
-    const results=urls.map(url=>({url,title:'public fixture',snippet:'search summary only',summary:'long search summary only'}));
-    const f=fixture(async a=>a.operation==='search'?{results}:{title:'fetched fixture',content:'fixture body'});
-    await f.engine.start('公开技术','mixed');await flush();expect(f.engine.run?.hits).toHaveLength(4);
-    expect(f.engine.run?.hits[0].matches.some(m=>m.url===urls[1])).toBe(true);
-    const manual=f.engine.run!.hits[3];f.engine.fetch(manual.id);await flush();
-    const fetched=f.api().filter(c=>c.args.operation==='fetch');
-    expect(fetched.map(c=>c.args.payload)).toEqual([urls[0],urls[2],urls[3],urls[4]].map(url=>({url})));
-    expect(fetched.every(c=>c.args.attemptIndex===0)).toBe(true);expect(f.engine.run?.logicalFetch).toBe(4);f.engine.stop();
-  });
-  it('uses only Fetch content for a successful body and preserves the returned Markdown',async()=>{
-    const content='# Public fixture\n\nFirst fetched paragraph.\n\n<script>literal text</script>';
-    const f=fixture(async a=>a.operation==='search'?batch(1):{title:'Fetched title',content});
-    await f.engine.start('公开技术','mixed');await flush();const h=f.engine.run!.hits[0];
-    expect(h.fetchStatus).toBe('available');expect(h.content).toBe(content);expect(h.preview).toBe('# Public fixture');
-    expect(h.preview).not.toContain(h.snippet);expect(h.fetchedAt).toBeTypeOf('number');
-    const count=f.api().length;f.engine.fetch(h.id);await flush();expect(f.api()).toHaveLength(count);
-    const saved=f.calls.filter(c=>c.command==='save_run').at(-1)?.args.run as {hits:{content?:string}[]};expect(saved.hits[0].content).toBe(content);f.engine.stop();
-  });
-  it('keeps Search summaries after Fetch 404, without retrying or inventing a body',async()=>{
-    const f=fixture(async a=>{if(a.operation==='search')return batch(1);throw{kind:'http',status:404};});
-    await f.engine.start('公开技术','mixed');await flush();await vi.advanceTimersByTimeAsync(2000);
-    const h=f.engine.run!.hits[0];expect(h.snippet).toBe('summary');expect(h.fetchStatus).toBe('failed');expect(h.content).toBeUndefined();expect(h.preview).toBeUndefined();
-    expect(f.engine.run?.status).toBe('partial');expect(f.api().filter(c=>c.args.operation==='fetch')).toHaveLength(1);
-    f.engine.fetch(h.id);await flush();expect(f.api().filter(c=>c.args.operation==='fetch')).toHaveLength(1);f.engine.stop();
-  });
 });
