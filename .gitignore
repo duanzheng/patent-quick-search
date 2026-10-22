@@ -1,0 +1,40 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.DS_Store
+*.log
+
+# Local credentials, user state and developer-only data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+.ssh/
+.aws/
+.secrets/
+.toolchain/
+**/state-v1.json
+**/metrics-v1.jsonl
+*.jsonl
+*.sqlite
+*.sqlite3
+*.db
+
+# Native build outputs and installer packages
+target/
+*.dmg
+*.app/
+*.exe
+*.msi
+*.msix
+*.zip
+*.tar.gz
+
+# Machine-specific diagnostics and usage traces stay local
+/doc/evidence/*
+!/doc/evidence/README.md
