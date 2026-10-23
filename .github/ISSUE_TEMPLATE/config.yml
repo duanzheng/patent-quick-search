@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞与凭据泄漏
+    url: https://github.com/duanzheng/patent-quick-search/blob/master/SECURITY.md
+    about: 请先阅读私下报告指引，不要公开敏感信息。

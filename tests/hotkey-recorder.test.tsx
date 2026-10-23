@@ -6,7 +6,7 @@ import { App } from '../src/App';
 import { Engine } from '../src/engine';
 import { HotkeyRecorder } from '../src/HotkeyRecorder';
 import type { Bridge } from '../src/types';
-let host:HTMLDivElement,root:Root,calls:string[],save:ReturnType<typeof vi.fn>,failBegin:boolean,failSave:boolean;
+let host:HTMLDivElement,root:Root,calls:string[],save:ReturnType<typeof vi.fn<(value:string)=>Promise<void>>>,failBegin:boolean,failSave:boolean;
 const field=()=>host.querySelector<HTMLInputElement>('#hotkey-recorder')!;
 const button=(text:string)=>Array.from(host.querySelectorAll('button')).find(b=>b.textContent===text)!;
 const press=async(key:string,code:string,props:KeyboardEventInit={},type='keydown')=>{await act(async()=>{field().dispatchEvent(new KeyboardEvent(type,{key,code,ctrlKey:true,altKey:true,bubbles:true,cancelable:true,...props}));});};

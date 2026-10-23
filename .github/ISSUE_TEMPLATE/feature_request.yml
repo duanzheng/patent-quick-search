@@ -1,0 +1,22 @@
+name: 功能建议
+description: 说明公开资料检索的具体任务与价值。
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 希望解决的用户任务
+      description: 以不含敏感信息的例子说明。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议行为、替代方式与成功标准
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 范围检查
+      options:
+        - label: 已阅读 PRD 与 README，理解当前为 Search-only、有限候选集与外部浏览器详情。
