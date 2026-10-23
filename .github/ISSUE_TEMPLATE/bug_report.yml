@@ -1,0 +1,37 @@
+name: 缺陷报告
+description: 提供脱敏复现和平台信息；漏洞请走 SECURITY.md 私下渠道。
+body:
+  - type: markdown
+    attributes:
+      value: 不要上传 API Key、用户配置、真实查询、余额、未脱敏日志或截图。安全漏洞请先阅读 SECURITY.md。
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本或提交 SHA
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: 操作系统、系统版本、架构与安装方式
+      placeholder: 例如 Windows 11 x64 / NSIS，或 macOS 13 arm64 / 本地开发
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤与合成输入
+      description: 使用公开虚构输入，不包含真实 Key 或敏感任务。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 可选脱敏证据与已尝试方法
+      description: 请先确认文本或截图不含 Key、余额、用户状态或真实搜索内容。

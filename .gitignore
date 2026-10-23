@@ -27,6 +27,9 @@ src-tauri/gen/
 
 # Native build outputs and installer packages
 target/
+release-stage/
+release-assets/
+downloaded/
 *.dmg
 *.app/
 *.exe
