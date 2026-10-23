@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generator": "cargo-about 0.9.2 + scripts/generate-notices.mjs",
   "targets": [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc"
   ],
-  "npmLockSha256": "f457cba9d70058effc0efe32700aa61fca64070741b87eda582ecec460f50d09",
+  "pnpmLockSha256": "22bf0074b57622cc41b3356544c19fdf3e29e1a1657e82e51a07498da418ab5a",
   "cargoLockSha256": "f401f75ddd3b7ac1376b9bcb4893bf560ce9f434852dbabb14adabdcf2b86320",
   "noticesSha256": "cb3d7cb00159e855c06d3ee963d6413cf182091ffb916ccd77caac7542b82a1d",
   "packages": [

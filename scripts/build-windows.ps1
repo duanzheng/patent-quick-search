@@ -28,7 +28,7 @@ function Invoke-Checked([string]$File, [string[]]$Arguments) {
 try {
     Set-Location $patentProjectRoot
     $patentNode = Resolve-Tool 'node.exe'
-    $patentNpm = Resolve-Tool 'npm.cmd'
+    $patentPnpm = Resolve-Tool 'pnpm.cmd'
     $patentRustc = Resolve-Tool 'rustc.exe'
     $patentCargo = Resolve-Tool 'cargo.exe'
     $patentRustup = Resolve-Tool 'rustup.exe'
@@ -38,6 +38,10 @@ try {
     $patentRc = Resolve-Tool 'rc.exe'
     $patentNodeText = & $patentNode --version
     if ($LASTEXITCODE -ne 0 -or [version]($patentNodeText.TrimStart('v')) -lt [version]'22.12.0') { throw 'Node.js 22.12+ is required (22.22.2 was tested on Mac).' }
+    $patentPackage = Get-Content -Raw -LiteralPath (Join-Path $patentProjectRoot 'package.json') | ConvertFrom-Json
+    $patentExpectedPnpm = $patentPackage.packageManager -replace '^pnpm@', ''
+    $patentPnpmText = & $patentPnpm --version
+    if ($LASTEXITCODE -ne 0 -or $patentPnpmText.Trim() -ne $patentExpectedPnpm) { throw "Use the packageManager-pinned pnpm $patentExpectedPnpm." }
     $patentRustText = & $patentRustc --version
     if ($LASTEXITCODE -ne 0) { throw 'Cannot determine installed Rust compiler version.' }
     $patentRustMatch = [regex]::Match($patentRustText, '^rustc (\d+\.\d+\.\d+)')
@@ -50,19 +54,19 @@ try {
     if ($PreflightOnly) { return }
     # This process only; restore the caller's setting in finally.
     $env:CARGO_TARGET_DIR = Join-Path $patentProjectRoot 'src-tauri/target'
-    if (-not $SkipInstall) { Invoke-Checked $patentNpm @('ci','--registry=https://registry.npmjs.org','--no-fund','--no-audit') }
+    if (-not $SkipInstall) { Invoke-Checked $patentPnpm @('install','--frozen-lockfile') }
     elseif (-not (Test-Path -LiteralPath (Join-Path $patentProjectRoot 'node_modules'))) { throw '-SkipInstall requires existing project dependencies.' }
-    Invoke-Checked $patentNpm @('run','lint')
-    Invoke-Checked $patentNpm @('run','typecheck')
-    Invoke-Checked $patentNpm @('test')
-    Invoke-Checked $patentNpm @('run','build')
+    Invoke-Checked $patentPnpm @('run','lint')
+    Invoke-Checked $patentPnpm @('run','typecheck')
+    Invoke-Checked $patentPnpm @('test')
+    Invoke-Checked $patentPnpm @('run','build')
     Invoke-Checked $patentCargo @('fmt','--manifest-path','src-tauri/Cargo.toml','--','--check')
     Invoke-Checked $patentCargo @('clippy','--locked','--target','x86_64-pc-windows-msvc','--manifest-path','src-tauri/Cargo.toml','--','-D','warnings')
     Invoke-Checked $patentCargo @('test','--locked','--target','x86_64-pc-windows-msvc','--manifest-path','src-tauri/Cargo.toml')
     if ($ChecksOnly) { return }
     $patentBundles = 'nsis'
     if ($IncludeMsi) { $patentBundles = 'nsis,msi' }
-    Invoke-Checked $patentNpm @('run','tauri','build','--','--target','x86_64-pc-windows-msvc','--bundles',$patentBundles)
+    Invoke-Checked $patentPnpm @('run','tauri','build','--target','x86_64-pc-windows-msvc','--bundles',$patentBundles,'--','--locked')
     $patentVerify = @('scripts/verify-windows-artifacts.mjs')
     if ($IncludeMsi) { $patentVerify += '--include-msi' }
     Invoke-Checked $patentNode $patentVerify

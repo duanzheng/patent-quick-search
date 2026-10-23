@@ -15,8 +15,8 @@ master 已从原 main 的 e056eb1 创建并设为默认分支，main 保留；�
 ## 发布前清单
 
 - 项目 LICENSE 与 SPDX 元数据已明确；许可证清单随锁文件刷新，第三方 LICENSE / NOTICE 快照与锁文件一致，并校验应用资源打包内容。
-- master 的待发布提交已审查，所有检查通过；更改版本时同步 package.json、package-lock 根/包根、Cargo.toml、Cargo.lock 根包与 tauri.conf.json。
-- `npm run check`、原生测试/构建、依赖审计通过；签名、macOS 13/Intel、Windows 11、WebView2、托盘/热键/凭据、清洁安装/卸载的未验证项如实列出。
+- master 的待发布提交已审查，所有检查通过；更改版本时同步 package.json、Cargo.toml、Cargo.lock 根包与 tauri.conf.json。
+- `pnpm run check`、原生测试/构建、依赖审计通过；签名、macOS 13/Intel、Windows 11、WebView2、托盘/热键/凭据、清洁安装/卸载的未验证项如实列出。
 - 自动预览无签名凭据。不得在 repo、Actions、输出或截图中放入用户 API Key。无自动付费服务测试。
 - 更新 CHANGELOG 与 release notes。版本仅接受无前缀零的 `X.Y.Z`，对应唯一 `vX.Y.Z` 标签，不能覆盖旧版本。
 
@@ -62,3 +62,5 @@ master 已从原 main 的 e056eb1 创建并设为默认分支，main 保留；�
 - [Actions 安全参考](https://docs.github.com/en/actions/reference/security/secure-use)、[Release REST API](https://docs.github.com/en/rest/releases/releases)：最小权限、固定 action SHA、先 draft 后公开。
 
 The DMG verifier acknowledges the embedded project MIT license through stdin, mounts the final image read-only, checks bundled legal texts, and detaches it even when a hash check fails. A tiny native macOS fixture tests this protocol before release builds.
+
+发布使用 packageManager 固定的 pnpm，生产 bundle 执行 frozen-lockfile 安装；Tauri 参数直接传给 `pnpm run tauri build`，最后的 `-- --locked` 仍传递给 Cargo。本次管理器迁移不改变应用版本，不创建新 tag 或 Release。

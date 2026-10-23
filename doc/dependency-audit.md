@@ -9,17 +9,17 @@
 - `cargo-audit 0.22.2` 最初发现 `tokio 1.54.0` 的 `RUSTSEC-2026-0384`，该版本亦已撤回。将 Tokio 更新至 1.54.1；Cargo 同时按 registry 元数据修正原锁文件中 windows-sys / syn 的依赖边，不升级这些无关包的版本。重跑审计为 **0 漏洞**，保留下列 2 项 informational 警告。
 - Rust 的已知上游警告另行保留，不能写成“全部依赖无风险”：`proc-macro-error 1.0.4` 未维护（RUSTSEC-2024-0370）；Linux GTK 依赖 `glib 0.18.5` 有 unsound 警告（RUSTSEC-2024-0429，修复线 >=0.20，不能单独跨主版本替换 Tauri 依赖）。目标发行仅 macOS/Windows，不发布 Linux 包，但仍记录依赖图中的此项。没有添加全局忽略，也没有伪称修复上游 GTK。
 
-审计依据为 npm / RustSec 当时数据库，不保证发现未知漏洞。默认 CI 执行 npm `--audit-level=high` 与 Cargo audit，真实漏洞使检查失败；Cargo 的 informational 警告仍需维护者审阅，不应把退出 0 解读为无警告。Dependabot 每周检查 npm、Cargo、Actions，保持 PR 审查与无自动合并。
+审计依据为 npm / RustSec 当时数据库，不保证发现未知漏洞。默认 CI 执行 pnpm `--audit-level=high`；涉及原生代码或工作流时另执行 Cargo audit，真实漏洞使检查失败；Cargo 的 informational 警告仍需维护者审阅，不应把退出 0 解读为无警告。Dependabot 每月为 pnpm（npm 生态）、Cargo、Actions 分组普通 minor/patch 更新，各生态最多 1 个普通 PR；major 普通更新留给人工集中升级。安全更新独立分组，不受此普通更新级别限制，保持仓库已有告警/安全更新设置不变。所有更新保持 PR 审查，不启用自动合并。
 
 ## 可重复命令
 
 ```sh
-npm ci
-npm audit --audit-level=high
+pnpm install --frozen-lockfile
+pnpm audit --audit-level=high
 cargo install cargo-audit --version 0.22.2 --locked
 cargo audit --file src-tauri/Cargo.lock
-npm run audit:licenses
-npm run check:repository
+pnpm run audit:licenses
+pnpm run check:repository
 ```
 
 许可证清单生成需 Node、Cargo、curl 与公开网络；支持代理环境，不连接公司私有 registry。Cargo metadata 只解析/获取依赖元数据，不构建 GUI。
@@ -28,7 +28,7 @@ npm run check:repository
 
 [dependency-inventory.json](dependency-inventory.json)列出所有 npm 锁定条目（包括可选平台包与开发工具）、Cargo resolved packages、版本与声明许可证，不保存机器路径或环境。锁文件 SHA-256 由仓库检查验证；依赖变动必须重新生成清单，防止审计说明悄然落后。
 
-当前清单约 277 个 npm 条目、472 个 Rust 包（更新后以文件为准），均有上游声明的许可证。这个数量包含不同平台和构建期依赖，不等于实际安装器中的运行时代码数量。
+迁移后清单为 275 个唯一 pnpm registry 包、472 个 Rust 包（更新后以文件为准），均有上游声明的许可证。这个数量包含不同平台和构建期依赖，不等于实际安装器中的运行时代码数量。
 
 主要为 MIT / Apache-2.0 / BSD / ISC / Zlib 等宽松许可证；还包含 MPL-2.0 文件级义务、Unicode-3.0 数据许可、CDLA-Permissive-2.0 证书数据与带 LLVM exception 的 Apache 条款。少数 Rust 包提供 MIT/Apache/LGPL 多选，不能把多选表达式误判为整个应用必须使用 LGPL。系统 WebKit/GTK 与 Windows WebView2、外部 SDK / 安装工具不在 Cargo/npm 清单内，其分发条件须另核对。
 
@@ -37,3 +37,9 @@ npm run check:repository
 ## 范围边界
 
 CI 的临时 runner 只安装公开锁定依赖，不包含 Key、用户历史、真实查询或余额。产物 allowlist 不上传依赖目录、target 全目录、源日志或截图；artifact manifest 和校验和用于完整性与来源追踪，不是签名或供应链安全证明。GitHub Actions 使用上游核实的完整提交 SHA，见工作流与[发布指南](releasing.md)。
+
+## pnpm 迁移后的维护规则
+
+当前项目依赖锁为 pnpm-lock.yaml，旧 npm 审计记录是迁移前事实；迁移验证结果见 [迁移报告](pnpm-migration.md)。`pnpm run dependencies:refresh` 同时刷新 pnpm/Cargo 锁哈希、声明清单和完整许可全文；未知许可证表达式、缺失实际条款或不完整运行时依赖图会失败，不自动忽略。Dependabot 仅改锁的 PR 需要维护者在其分支补充这些快照后再执行兼容性检查。
+
+Dependabot 使用 `allow.update-types` 限定普通 minor/patch（[官方语义：只影响 version updates，不影响 security updates](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#update-types-allow)），不使用广泛 ignore 规则。安全 PR 独立分组，不能把普通 PR 数量限制理解成安全更新停用；仓库实际安全功能启用状态独立于该文件。

@@ -26,25 +26,26 @@
 需要 Node.js 22.22.2（`.nvmrc`）、Rust 1.90.0（`rust-toolchain.toml`）及 [Tauri 平台前置条件](https://v2.tauri.app/start/prerequisites/)。Node 24 可用于前端检查；原生构建使用仓库固定版本。
 
 ```sh
-npm ci
-npm run check
-npm run tauri dev
+pnpm --version # 应为 packageManager 固定的 10.34.7
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm run tauri dev
 ```
 
-`npm run dev` 仅启动浏览器前端，不能替代桌面 IPC、托盘、凭据或快捷键验收。默认离线测试使用合成数据，不读取真实 Key，不调用付费 API。
+`pnpm run dev` 仅启动浏览器前端，不能替代桌面 IPC、托盘、凭据或快捷键验收。默认离线测试使用合成数据，不读取真实 Key，不调用付费 API。
 
 ```sh
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --manifest-path src-tauri/Cargo.toml
-npm run tauri build -- --no-bundle -- --locked
+pnpm run tauri build --no-bundle -- --locked
 ```
 
-环境、测试边界和构建方式见[开发指南](doc/development.md)，提交流程见[贡献指南](CONTRIBUTING.md)。两个锁文件必须提交，CI 使用 `npm ci` 与 Cargo `--locked`。
+环境、测试边界和构建方式见[开发指南](doc/development.md)，提交流程见[贡献指南](CONTRIBUTING.md)。`packageManager` 固定 pnpm 10.34.7（兼容本项目 Node 22/24）；可用 Corepack 按该字段安装，或参考 [pnpm 10 安装说明](https://pnpm.io/10.x/installation)。`pnpm-lock.yaml` 与 `src-tauri/Cargo.lock` 必须提交，CI 使用 `pnpm install --frozen-lockfile` 与 Cargo `--locked`。
 
 ## CI 与标签发布
 
-[CI](.github/workflows/ci.yml)检查所有 PR、main/master push（避免同一 PR 重复运行）：前端 lint、类型、76 项离线测试、发布工具测试、npm / Rust 安全审计与工作流语法；macOS 执行 Rust fmt / clippy / test，Windows 只做 Rust 必要编译检查。普通 CI 不构建生产安装包、不上传 installer artifacts，也不发布 Release。`npm run check:ci` 是相同的前端轻量入口；本地 `npm run check` 额外检查 Vite 构建。
+[CI](.github/workflows/ci.yml)检查所有 PR、main/master push（避免同一 PR 重复运行）：前端 lint、类型、76 项离线测试、发布工具测试、pnpm 安全审计；涉及原生代码、工作流或验证脚本时，macOS 执行 Rust fmt / clippy / test、Windows 做 Rust 必要编译检查，并检查 Rust 审计与工作流语法。纯前端、依赖锁或文档变更跳过无关原生 job；无法确定变更范围时保守执行完整检查，版本 tag 始终完整检查。普通 CI 不构建生产安装包、不上传 installer artifacts，也不发布 Release。`pnpm run check:ci` 是相同的前端轻量入口；本地 `pnpm run check` 额外检查 Vite 构建。
 
 [标签工作流](.github/workflows/release.yml)为 `master` 的版本标签构建 Apple Silicon DMG、Intel DMG、Windows x64 NSIS / MSI，以及 SHA-256 和源码提交清单。所有检查及构建成功后先上传 draft，全部附件上传成功才公开为**未签名 prerelease**；失败不公开残缺版本。PR 无发布权限，也不使用发布密钥。
 

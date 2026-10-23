@@ -13,14 +13,15 @@
     "lint": "eslint .",
     "test": "vitest run",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run check:ci && npm run build",
+    "check": "pnpm run check:ci && pnpm run build",
     "check:repository": "node scripts/check-repository.mjs",
     "check:release": "node scripts/check-release.mjs",
     "audit:licenses": "node scripts/dependency-inventory.mjs",
     "notices:generate": "node scripts/generate-notices.mjs",
     "test:tooling": "node --test scripts/*.test.mjs",
     "tauri": "tauri",
-    "check:ci": "npm run check:repository && npm run lint && npm run typecheck && npm test && npm run test:tooling"
+    "check:ci": "pnpm run check:repository && pnpm run lint && pnpm run typecheck && pnpm test && pnpm run test:tooling",
+    "dependencies:refresh": "pnpm run audit:licenses && pnpm run notices:generate && pnpm run check:repository"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
@@ -41,6 +42,8 @@
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.0.0",
     "vite": "^7.1.0",
-    "vitest": "^4.1.12"
-  }
+    "vitest": "^4.1.12",
+    "yaml": "^2.9.1"
+  },
+  "packageManager": "pnpm@10.34.7"
 }

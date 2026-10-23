@@ -3,19 +3,51 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 1
+    # allow.update-types affects version updates only; security updates remain eligible.
+    allow:
+      - dependency-name: '*'
+        update-types: [version-update:semver-minor, version-update:semver-patch]
     groups:
-      development-tools:
-        dependency-type: development
+      javascript-maintenance:
+        applies-to: version-updates
+        patterns: ['*']
         update-types: [minor, patch]
+      javascript-security:
+        applies-to: security-updates
+        patterns: ['*']
   - package-ecosystem: cargo
     directory: /src-tauri
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 1
+    # allow.update-types affects version updates only; security updates remain eligible.
+    allow:
+      - dependency-name: '*'
+        update-types: [version-update:semver-minor, version-update:semver-patch]
+    groups:
+      rust-maintenance:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
+      rust-security:
+        applies-to: security-updates
+        patterns: ['*']
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 1
+    # allow.update-types affects version updates only; security updates remain eligible.
+    allow:
+      - dependency-name: '*'
+        update-types: [version-update:semver-minor, version-update:semver-patch]
+    groups:
+      actions-maintenance:
+        applies-to: version-updates
+        patterns: ['*']
+        update-types: [minor, patch]
+      actions-security:
+        applies-to: security-updates
+        patterns: ['*']

@@ -3,13 +3,15 @@ import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from '
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import console from 'node:console';
+import process from 'node:process';
+import { readPnpmLock } from './pnpm-metadata.mjs';
 
 // Regeneration tool only. Ordinary CI validates the committed snapshot offline.
 // cargo-about 0.9.2 selects the complete graph for our three release targets.
 // Generic SPDX fallback templates are NOT substituted for upstream copyright texts.
 const hash = value => createHash('sha256').update(value).digest('hex');
 const about = JSON.parse(execFileSync('cargo', ['about', 'generate', '--offline', '--locked', '--manifest-path', 'src-tauri/Cargo.toml', '--config', 'legal/about.toml', '--format', 'json'], { encoding: 'utf8', maxBuffer: 30 * 1024 * 1024 }));
-const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+const { packages: npmPackages } = readPnpmLock();
 const records = new Map();
 const packages = [];
 function collectFile(path, origin, member) {
@@ -62,10 +64,26 @@ for (const { package: pkg } of about.crates) {
   if (!files.some(f => f.substantive)) throw new Error(`Missing actual copyright/license text: ${member}`);
   packages.push({ id: member, license: pkg.license, source, repository: pkg.repository, authors: pkg.authors, declaredMitTerms, declaredMplTerms, texts: [...new Set(files.map(f => f.sha256))].sort() });
 }
-const npmPaths = Object.entries(lock.packages).filter(([path, pkg]) => path && !pkg.dev).map(([path]) => path);
-// Include the build tools' runtime helpers/polyfill notices conservatively as well.
-for (const name of ['vite', 'rollup', 'esbuild', '@vitejs/plugin-react']) npmPaths.push(`node_modules/${name}`);
-for (const path of [...new Set(npmPaths)].sort()) {
+// pnpm's isolated layout does not hoist transitive packages to node_modules/.
+// Ask its installed graph for paths, then keep all machine paths out of snapshots.
+if (!process.env.npm_execpath?.includes('pnpm')) throw new Error('Run this generator using pnpm run notices:generate');
+const installed = JSON.parse(execFileSync(process.execPath, [process.env.npm_execpath, 'list', '--json', '--depth', 'Infinity'], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }));
+const directories = new Map();
+function findInstalled(node) {
+  for (const group of ['dependencies', 'devDependencies', 'optionalDependencies']) for (const [name, child] of Object.entries(node[group] || {})) {
+    directories.set(name + '@' + child.version, child.path);findInstalled(child);
+  }
+}
+for (const root of installed) findInstalled(root);
+const npmIds = npmPackages.filter(pkg => !pkg.development).map(pkg => pkg.key);
+for (const name of ['vite', 'rollup', 'esbuild', '@vitejs/plugin-react']) {
+  const pkg = npmPackages.find(pkg => pkg.name === name);
+  if (!pkg) throw new Error('Missing bundled helper license: ' + name);
+  npmIds.push(pkg.key);
+}
+for (const id of [...new Set(npmIds)].sort()) {
+  const path = directories.get(id);
+  if (!path) throw new Error('Missing installed runtime/helper package: ' + id + '; run pnpm install --frozen-lockfile');
   const pkg = JSON.parse(readFileSync(join(path, 'package.json'), 'utf8'));
   const member = `npm:${pkg.name}@${pkg.version}`;
   const source = `https://registry.npmjs.org/${pkg.name}/-/${pkg.name.split('/').at(-1)}-${pkg.version}.tgz`;
@@ -80,6 +98,6 @@ text += 'This file preserves upstream license, copyright and NOTICE texts for th
 for (const pkg of packages) text += `${pkg.id}\nDeclared license: ${pkg.license}\nExact source: ${pkg.source}\n${pkg.authors?.length ? `Published authors: ${pkg.authors.join('; ')}\n` : ''}${pkg.declaredMitTerms || pkg.declaredMplTerms ? 'Text exception: upstream references its license without the full text; full referenced terms supplied.\n' : ''}Text SHA-256: ${pkg.texts.join(', ')}\n\n`;
 for (const record of blocks) text += `\n${'='.repeat(72)}\nText SHA-256: ${record.sha256}\nApplies to: ${[...record.packages].sort().join(', ')}\nSources:\n${[...record.origins].sort().join('\n')}\n${'-'.repeat(72)}\n${record.text}\n`;
 writeFileSync('THIRD_PARTY_NOTICES.txt', text);
-const manifest = { schemaVersion: 1, generator: 'cargo-about 0.9.2 + scripts/generate-notices.mjs', targets: ['aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc'], npmLockSha256: hash(readFileSync('package-lock.json')), cargoLockSha256: hash(readFileSync('src-tauri/Cargo.lock')), noticesSha256: hash(text), packages, textCount: blocks.length };
+const manifest = { schemaVersion: 2, generator: 'cargo-about 0.9.2 + scripts/generate-notices.mjs', targets: ['aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc'], pnpmLockSha256: hash(readFileSync('pnpm-lock.yaml')), cargoLockSha256: hash(readFileSync('src-tauri/Cargo.lock')), noticesSha256: hash(text), packages, textCount: blocks.length };
 writeFileSync('legal/notice-manifest.json', JSON.stringify(manifest, null, 2) + '\n');
 console.log(`Preserved ${blocks.length} license/notice texts for ${packages.length} packages`);
