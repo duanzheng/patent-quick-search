@@ -45,3 +45,6 @@ downloaded/
 # User-approved local API credential configuration is never source
 **/credentials-v1.json
 **/.credentials-*.tmp
+
+# pnpm local store (CI caches it externally)
+.pnpm-store/

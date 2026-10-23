@@ -8,7 +8,7 @@
 
 最直接的最小需求是一台可使用的 **Windows11 x64机器**（可以是用户或测试协作者已有环境），已有：
 
-- Node.js22.12+及npm；本轮Mac使用22.22.2。
+- Node.js22.12+及固定版本 pnpm；本轮Mac使用22.22.2。
 - Rust≥1.90、x86_64-pc-windows-msvc目标、rustfmt与clippy；本轮验证编译器为1.99.1，1.90最低版本只据已锁依赖声明核实，尚未实际运行。
 - Visual Studio C++/MSVC x64工具与Windows SDK，在x64 Native Tools/Developer PowerShell中可发现cl.exe、link.exe、rc.exe。
 - 项目依赖及打包工具缓存，或允许获取公开npm/crates/NSIS依赖的网络；脚本不会安装系统级工具或开通账号。

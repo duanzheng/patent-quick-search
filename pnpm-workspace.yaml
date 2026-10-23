@@ -1,0 +1,5 @@
+# Review dependency lifecycle scripts explicitly; unknown builds fail installation.
+strictDepBuilds: true
+allowBuilds:
+  esbuild@0.28.2: true
+  fsevents: false

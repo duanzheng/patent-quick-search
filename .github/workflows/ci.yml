@@ -19,19 +19,37 @@ jobs:
     name: Frontend and release policy
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      native: ${{ steps.scope.outputs.native }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - run: npm ci --no-audit --no-fund
-      - run: npm run check:ci
-      - run: npm audit --audit-level=high
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Select native checks from immutable change range (tags always full)
+        id: scope
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_REF: ${{ github.ref }}
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CHANGE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci-scope.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:ci
+      - run: pnpm audit --audit-level=high
 
   rust:
+    needs: frontend
+    if: needs.frontend.outputs.native == 'true'
     name: Rust tests and lint
     runs-on: macos-14
     timeout-minutes: 30
@@ -54,6 +72,8 @@ jobs:
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
   windows-check:
+    needs: frontend
+    if: needs.frontend.outputs.native == 'true'
     name: Windows Rust compile check
     runs-on: windows-2022
     timeout-minutes: 30
@@ -65,8 +85,17 @@ jobs:
         with:
           toolchain: '1.90.0'
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Parse Windows helper without building an installer
+        shell: pwsh
+        run: |
+          $parseTokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/build-windows.ps1'), [ref]$parseTokens, [ref]$parseErrors)
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 
   supply-chain:
+    needs: frontend
+    if: needs.frontend.outputs.native == 'true'
     name: Rust advisories and workflow syntax
     runs-on: ubuntu-24.04
     timeout-minutes: 20

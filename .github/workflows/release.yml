@@ -24,6 +24,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
@@ -39,7 +42,7 @@ jobs:
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$header"
           git -c "http.extraheader=$header" fetch --no-tags --force origin "refs/heads/master:refs/remotes/origin/master" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-          npm run check:release
+          pnpm run check:release
           echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
         id: commit
 
@@ -72,24 +75,29 @@ jobs:
         with:
           ref: ${{ needs.guard.outputs.sha }}
           persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: '1.90.0'
           targets: ${{ matrix.target }}
-      - run: npm ci --no-audit --no-fund
+      - run: pnpm install --frozen-lockfile
       - name: Build macOS installers (ad-hoc only, not notarized)
         if: runner.os == 'macOS'
         env:
           APPLE_SIGNING_IDENTITY: '-'
           BUILD_TARGET: ${{ matrix.target }}
-        run: npm run tauri build -- --target "$BUILD_TARGET" --bundles dmg -- --locked
+        run: pnpm run tauri build --target "$BUILD_TARGET" --bundles dmg -- --locked
       - name: Build Windows installers (unsigned)
         if: runner.os == 'Windows'
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
+        run: pnpm run tauri build --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
       - name: Validate macOS disk image container
         if: runner.os == 'macOS'
         env:
@@ -125,6 +133,9 @@ jobs:
           ref: ${{ needs.guard.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
@@ -143,7 +154,7 @@ jobs:
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$header"
           git -c "http.extraheader=$header" fetch --no-tags --force origin "refs/heads/master:refs/remotes/origin/master" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-          npm run check:release
+          pnpm run check:release
           # Existing releases are never overwritten, including partial drafts.
           # Creation fails safely if another release already uses this tag.
           gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_SHA" --title "技术点快搜 $RELEASE_TAG — unsigned preview" --notes-file .github/RELEASE_NOTES.md --draft --prerelease
