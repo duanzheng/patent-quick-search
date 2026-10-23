@@ -46,6 +46,8 @@ npm run tauri build -- --no-bundle -- --locked
 
 [CI](.github/workflows/ci.yml)检查所有 PR、main/master push（避免同一 PR 重复构建）：前端 lint、类型、离线测试、构建、发布策略；Apple Silicon / Intel macOS 与 Windows 分别运行 Rust 格式、clippy、测试与安装器构建（内部测试产物保留 7 天）；另检查 npm / Rust 安全公告与工作流语法。
 
+最后的只读 job 对实际三平台产物执行完整性、提交/版本、大小与哈希校验，生成含四个安装器、`build-manifest.json` 和 `SHA256SUMS` 的 `release-preview` artifact；不创建 GitHub Release。
+
 [标签工作流](.github/workflows/release.yml)为 `master` 的版本标签构建 Apple Silicon DMG、Intel DMG、Windows x64 NSIS / MSI，以及 SHA-256 和源码提交清单。所有检查及构建成功后先上传 draft，全部附件上传成功才公开为**未签名 prerelease**；失败不公开残缺版本。PR 无发布权限，也不使用发布密钥。
 
 经用户批准，已从 main 的同一提交创建 `master`、保留 main，draft PR 以 master 为目标；默认分支设置的准确状态见[发布指南](doc/releasing.md)。本次不改私有状态、不 merge、不打正式标签、不发布正式版本。待 PR 审查合并后，才可按发布指南授权后续发行。
