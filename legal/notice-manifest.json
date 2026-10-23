@@ -6,8 +6,8 @@
     "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc"
   ],
-  "npmLockSha256": "2609b60f28cbf338ed38ec7b4d9631c0a74addc49876ac9f56dc78fdc638a3cb",
-  "cargoLockSha256": "ad13920f166e91077dcf41ff9e3731166319de3c21c0b7713be37cb9cf47ad2f",
+  "npmLockSha256": "530bca57e59739c8674cd0b2d7816cf80fa73e82941688e4e6e0760b887faea4",
+  "cargoLockSha256": "0a105cfc7d134fc8d17787c155378c57e61994a9eaf81b6dff0439d7078d8f3d",
   "noticesSha256": "cb3d7cb00159e855c06d3ee963d6413cf182091ffb916ccd77caac7542b82a1d",
   "packages": [
     {

@@ -2,7 +2,7 @@
 
 ## 目前状态与待决策
 
-默认分支为 master，原 main 与完整历史保留，仓库为 private。源码采用 MIT。普通 CI 仅测试/类型/lint/必要编译/安全检查；只有 master 归属的版本标签进入生产打包和发布。首版按当前 0.1.0 的一致元数据准备，实际已发布版本以 GitHub Releases 为准。
+默认分支为 master，原 main 与完整历史保留，仓库为 private。源码采用 MIT。普通 CI 仅测试/类型/lint/必要编译/安全检查；只有 master 归属的版本标签进入生产打包和发布。首版按当前一致元数据准备，实际已发布版本以 GitHub Releases 为准。
 
 `THIRD_PARTY_NOTICES.txt` 包含发布目标依赖的完整条款、原始版权/NOTICE、精确版本源码链接及 MPL 源码获取说明。`legal/notice-manifest.json` 校验其覆盖与锁文件/全文哈希。LICENSE 与第三方全文同时作为应用资源和下载附件；缺失或篡改使质量/发布守卫失败。
 

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { assemble, targets } from './release-artifacts.mjs';
+import { assemble, targets, verifyMacResources } from './release-artifacts.mjs';
 
 // Synthetic bytes exercise staging integrity only; these are never installers.
 function fixture(root) {
@@ -40,5 +40,22 @@ for (const scenario of ['complete', 'missing-platform', 'missing-file', 'tampere
     const run = () => assemble(source, join(root, 'release'), '0.1.0', (scenario === 'wrong-commit' ? 'b' : 'a').repeat(40), root);
     if (scenario === 'complete') { assert.equal(run().length, 3);assert.equal(readFileSync(join(root, 'release/SHA256SUMS'), 'utf8').trim().split('\n').length, 7); }
     else assert.throws(run);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+for (const scenario of ['complete', 'missing-notice', 'tampered-notice', 'no-app', 'multiple-apps']) test(`final DMG mounted-volume fixture: ${scenario}`, () => {
+  const root = mkdtempSync(join(tmpdir(), 'patent-dmg-volume-'));
+  try {
+    // This models the final volume only. There is no bundle/macos intermediate app.
+    const resources = join(root, '技术点快搜.app/Contents/Resources');mkdirSync(resources, { recursive: true });
+    const legal = ['LICENSE', 'THIRD_PARTY_NOTICES.txt'].map(name => {
+      const bytes = 'Synthetic source license fixture\n';writeFileSync(join(resources, name), bytes);
+      return { name, sha256: createHash('sha256').update(bytes).digest('hex') };
+    });
+    if (scenario === 'missing-notice') rmSync(join(resources, 'THIRD_PARTY_NOTICES.txt'));
+    if (scenario === 'tampered-notice') writeFileSync(join(resources, 'THIRD_PARTY_NOTICES.txt'), 'tampered');
+    if (scenario === 'no-app') rmSync(join(root, '技术点快搜.app'), { recursive: true });
+    if (scenario === 'multiple-apps') mkdirSync(join(root, 'Unexpected.app'));
+    const verify = () => verifyMacResources(root, legal);
+    if (scenario === 'complete') verify();else assert.throws(verify);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
