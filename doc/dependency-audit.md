@@ -32,7 +32,7 @@ npm run check:repository
 
 主要为 MIT / Apache-2.0 / BSD / ISC / Zlib 等宽松许可证；还包含 MPL-2.0 文件级义务、Unicode-3.0 数据许可、CDLA-Permissive-2.0 证书数据与带 LLVM exception 的 Apache 条款。少数 Rust 包提供 MIT/Apache/LGPL 多选，不能把多选表达式误判为整个应用必须使用 LGPL。系统 WebKit/GTK 与 Windows WebView2、外部 SDK / 安装工具不在 Cargo/npm 清单内，其分发条件须另核对。
 
-该清单是元数据审计，**不是法律意见，也不是已完成的第三方许可证全文/NOTICE 包**。在选择项目许可证、允许自动发行前，维护者须确认图标/文档/既有贡献来源、选定各多许可选项、按实际目标收集版权/许可证/NOTICE，并确保安装包和附件包含所需声明。无项目许可证时 release 守卫拒绝发行，不能以“构建通过”绕过这一步。
+该清单是元数据审计，不是完整条款本身。首版已另行生成并打包 [THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt)，保留 221 份文本、311 个发布相关包的声明和精确源码地址；校验覆盖、锁文件与全文哈希，缺失/篡改阻止发布。来源追溯和只引用 MIT/MPL 的逐包例外见[许可说明](licensing.md)。
 
 ## 范围边界
 

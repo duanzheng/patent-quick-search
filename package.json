@@ -17,6 +17,7 @@
     "check:repository": "node scripts/check-repository.mjs",
     "check:release": "node scripts/check-release.mjs",
     "audit:licenses": "node scripts/dependency-inventory.mjs",
+    "notices:generate": "node scripts/generate-notices.mjs",
     "test:tooling": "node --test scripts/*.test.mjs",
     "tauri": "tauri",
     "check:ci": "npm run check:repository && npm run lint && npm run typecheck && npm test && npm run test:tooling"

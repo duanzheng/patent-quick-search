@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import console from 'node:console';
 import { createHash } from 'node:crypto';
+import { checkNotices } from './check-notices.mjs';
 
 export function versions(root = '.') {
   const read = name => readFileSync(resolve(root, name), 'utf8');
@@ -25,6 +26,7 @@ export function versions(root = '.') {
     const actual = createHash('sha256').update(readFileSync(resolve(root, file))).digest('hex');
     if (inventory.lockfiles[field] !== actual) throw new Error('Dependency inventory is stale: run npm run audit:licenses');
   }
+  checkNotices(root);
   return pkg.version;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) console.log(`Repository metadata OK: ${versions()}`);

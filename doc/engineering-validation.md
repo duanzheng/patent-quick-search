@@ -27,8 +27,8 @@
 
 最终工作流：普通 PR / main/master push 执行前端测试、类型、lint、版本/许可证元数据、Rust fmt/clippy/test、Windows 必要编译检查及安全审计，不构建安装器；只有通过 master 归属守卫的版本 tag 才执行三平台生产 bundle、完整性校验与 Release。准确最终 head / run 状态见 draft PR #1 最新检查。
 
-## 发布与验收边界
+## 首版发布准备与验收边界
 
-未创建正式 tag / GitHub Release，未改仓库可见性、未删除分支、未 merge。用户随后明确批准 MIT 与 main → master/default 迁移：已加入 MIT LICENSE 与一致元数据，从 e056eb1 创建 master 保留全部历史及 main，并把 PR base 改为 master。默认分支写入因工具能力缺失、gh API 返回 Forbidden 已交父线程协助，准确状态见发布指南。无签名身份时只生成未签名/未公证内部测试包，未来自动公开也固定为 prerelease。
+默认分支现为 master，main 与历史保留。用户已授权合并与首版标签，实际源码提交、标签及发布状态以 PR #1 / GitHub Releases 为准；历史“尚未授权”仅代表先前阶段。首发发现全文许可缺口后，补齐 THIRD_PARTY_NOTICES 与锁文件哈希/覆盖校验，新增缺失/篡改法律附件的发布回归测试。
 
-发布工作流中的安装器构建只证明编译、容器/PE 头与哈希检查；不是 Windows 11、macOS 13、中文输入法、托盘/热键、用户配置 ACL 或清洁安装/卸载通过。无付费 API 测试，不扩展既有检索质量结论。
+普通 CI 不生成安装包；tag 发布构建只证明编译、容器/PE 头、法律资源与哈希检查，不证明 Windows 11/macOS 13、中文输入法、托盘/热键、配置 ACL 或清洁安装/卸载。无真实 Key 或付费 API 测试，不扩展检索质量结论；无发布者签名/Apple 公证，自动版本明确 prerelease。

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - 增加开发、贡献、安全、许可、分支迁移/发布说明和 issue / PR 模板。
+- 首发补齐完整第三方许可/NOTICE、精确源码链接及锁文件/全文哈希守卫，随应用与 Release 分发。
 - 经维护者明确批准采用 MIT，并从 main 同提交创建 master、保留 main；PR 目标为 master。
 - 清除 npm 锁文件内网 HTTP registry 地址，升级受安全公告影响的测试依赖。
 - 增加 PR / 主分支 push 的测试、类型、lint、必要 Rust 编译与供应链检查；普通 CI 不构建或上传生产安装包。

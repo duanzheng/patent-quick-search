@@ -12,7 +12,9 @@ export const targets = {
   'x86_64-apple-darwin': { folder: 'dmg', extensions: ['.dmg'], signing: 'ad-hoc; not notarized' },
   'x86_64-pc-windows-msvc': { folder: 'nsis', extensions: ['.exe', '.msi'], signing: 'unsigned' },
 };
+const legalNames = ['LICENSE', 'THIRD_PARTY_NOTICES.txt'];
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
+const legalFiles = root => legalNames.map(name => ({ name, bytes: statSync(join(root, name)).size, sha256: hash(join(root, name)) }));
 const nameFor = (version, target, ext) => `patent-quick-search_${version}_${target}${ext}`;
 function assertIdentity(version, commit) {
   if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[0-9a-f]{40}$/.test(commit)) throw new Error('Invalid build identity');
@@ -32,11 +34,19 @@ export function stage(root, target, commit, destination) {
     const name = nameFor(version, target, ext);copyFileSync(source, join(destination, name));
     return { name, bytes: statSync(source).size, sha256: hash(source) };
   });
-  const manifest = { schemaVersion: 1, version, commit, target, signing: policy.signing, runtimeVerified: false, files };
+  const legal = legalFiles(root);
+  for (const file of legal) copyFileSync(join(root, file.name), join(destination, file.name));
+  if (target.endsWith('apple-darwin')) {
+    const appRoot = join(release, 'bundle/macos');
+    const apps = readdirSync(appRoot).filter(name => name.endsWith('.app'));
+    if (apps.length !== 1) throw new Error('Expected one macOS application bundle');
+    for (const file of legal) if (hash(join(appRoot, apps[0], 'Contents/Resources', file.name)) !== file.sha256) throw new Error('Application license resources do not match source');
+  }
+  const manifest = { schemaVersion: 1, version, commit, target, signing: policy.signing, runtimeVerified: false, files, legalFiles: legal };
   writeFileSync(join(destination, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
 }
-export function assemble(source, destination, version, commit) {
+export function assemble(source, destination, version, commit, root = '.') {
   assertIdentity(version, commit);
   const expectedDirs = Object.keys(targets).map(t => `bundle-${t}`).sort();
   if (JSON.stringify(readdirSync(source).sort()) !== JSON.stringify(expectedDirs)) throw new Error('Missing or extra platform artifact');
@@ -46,8 +56,10 @@ export function assemble(source, destination, version, commit) {
     const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
     if (manifest.schemaVersion !== 1 || manifest.version !== version || manifest.commit !== commit || manifest.target !== target || manifest.signing !== policy.signing || manifest.runtimeVerified !== false) throw new Error('Artifact identity mismatch');
     const expected = policy.extensions.map(ext => nameFor(version, target, ext)).sort();
-    if (JSON.stringify(readdirSync(directory).sort()) !== JSON.stringify([...expected, 'manifest.json'].sort()) || JSON.stringify(manifest.files.map(f => f.name).sort()) !== JSON.stringify(expected)) throw new Error('Incomplete or unexpected release files');
-    for (const file of manifest.files) {
+    const legal = legalFiles(root);
+    if (JSON.stringify(manifest.legalFiles) !== JSON.stringify(legal)) throw new Error('License asset identity mismatch');
+    if (JSON.stringify(readdirSync(directory).sort()) !== JSON.stringify([...expected, ...legalNames, 'manifest.json'].sort()) || JSON.stringify(manifest.files.map(f => f.name).sort()) !== JSON.stringify(expected)) throw new Error('Incomplete or unexpected release files');
+    for (const file of [...manifest.files, ...legal]) {
       const path = join(directory, file.name);
       if (!statSync(path).isFile() || statSync(path).size <= 0 || statSync(path).size !== file.bytes || hash(path) !== file.sha256) throw new Error('Artifact checksum mismatch');
     }
@@ -58,6 +70,10 @@ export function assemble(source, destination, version, commit) {
   const checksums = [];
   for (const manifest of manifests) for (const file of manifest.files) {
     copyFileSync(join(source, `bundle-${manifest.target}`, file.name), join(destination, file.name));
+    checksums.push(`${file.sha256}  ${file.name}`);
+  }
+  for (const file of legalFiles(root)) {
+    copyFileSync(join(root, file.name), join(destination, file.name));
     checksums.push(`${file.sha256}  ${file.name}`);
   }
   const manifestName = 'build-manifest.json';

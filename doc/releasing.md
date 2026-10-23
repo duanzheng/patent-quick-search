@@ -2,25 +2,19 @@
 
 ## 目前状态与待决策
 
-起始远端为 main/private，基线 `e056eb1756f0748dd4b1f8c2ed7c28a06778dd39`。用户现已明确批准 MIT 与 main → master/default 迁移。已加入 MIT LICENSE 和一致元数据，从 main 的同一提交创建 master，保留 main 与完整历史，draft PR #1 已改以 master 为目标。默认分支更新尚需父线程协助：本环境没有仓库设置 API，gh 只读 API 返回 Forbidden；所需操作为 PATCH 仓库设置的 `default_branch=master`，尚未执行该写入。
+默认分支为 master，原 main 与完整历史保留，仓库为 private。源码采用 MIT。普通 CI 仅测试/类型/lint/必要编译/安全检查；只有 master 归属的版本标签进入生产打包和发布。首版按当前 0.1.0 的一致元数据准备，实际已发布版本以 GitHub Releases 为准。
 
-工作流严格以 master 为发布来源，不自动回退 main。本次不改 private 可见性、不删除分支、不 merge、不创建正式标签或 Release。
+`THIRD_PARTY_NOTICES.txt` 包含发布目标依赖的完整条款、原始版权/NOTICE、精确版本源码链接及 MPL 源码获取说明。`legal/notice-manifest.json` 校验其覆盖与锁文件/全文哈希。LICENSE 与第三方全文同时作为应用资源和下载附件；缺失或篡改使质量/发布守卫失败。
 
 没有 Developer ID / 公证或 Windows 发布者签名，故自动 Release 固定 `prerelease: true`，标题明确 unsigned preview。普通 `vX.Y.Z` 标签用于跨 Tauri/Windows 安装器的一致版本；稳定版和预览通道不混称。未来正式稳定分发需要维护者另行批准签名/验收方案并审查修改工作流。
 
-## main → master 迁移与后续
+## 分支维护
 
-1. **已完成**：从 main 的准确 e056eb1 创建 master，保留 main；draft PR #1 base 改为 master。两分支历史一致，无强推或丢弃提交。
-2. **已批准、待工具执行**：将默认分支设置为 master。需有仓库管理权限的 PATCH /repos/duanzheng/patent-quick-search，仅更新 `default_branch`；创建分支不等于默认分支已更新。
-3. PR 审核合并仍未授权；待维护者另行审查合并后，验证 master 上准确 SHA 的 CI。当前工程化与 MIT 变更位于 PR 工作分支，不把它们说成已进入 master。
-4. 维护者按需配置保护默认分支、必须审查/通过 CI、禁止强推/删除，以及 v* 标签 ruleset；本次未修改保护规则。
-5. 协作者获取 master 并更新本地跟踪。保留 main；删除旧分支和公开仓库是独立决定。CI 兼容 main/master push 与所有 PR。
-
-若维护者选择继续使用 main，应在另一个明确批准的 PR 将发布目标改成 main，并同步守卫、测试和文档；不能静默用 main 代替用户要求。
+master 已从原 main 的 e056eb1 创建并设为默认分支，main 保留；未强推或丢弃历史。新 PR 以 master 为目标。维护者按需配置 PR 审查、必要检查、禁止强推/删除及 v* 标签规则，本次不扩大仓库可见性或删除分支。
 
 ## 发布前清单
 
-- 项目 LICENSE 与 SPDX 元数据已明确；许可证清单随锁文件刷新，审查第三方 LICENSE / NOTICE 和安装器打包内容。
+- 项目 LICENSE 与 SPDX 元数据已明确；许可证清单随锁文件刷新，第三方 LICENSE / NOTICE 快照与锁文件一致，并校验应用资源打包内容。
 - master 的待发布提交已审查，所有检查通过；更改版本时同步 package.json、package-lock 根/包根、Cargo.toml、Cargo.lock 根包与 tauri.conf.json。
 - `npm run check`、原生测试/构建、依赖审计通过；签名、macOS 13/Intel、Windows 11、WebView2、托盘/热键/凭据、清洁安装/卸载的未验证项如实列出。
 - 自动预览无签名凭据。不得在 repo、Actions、输出或截图中放入用户 API Key。无自动付费服务测试。
@@ -44,7 +38,7 @@
 | aarch64-apple-darwin | `patent-quick-search_X.Y.Z_aarch64-apple-darwin.dmg` |
 | x86_64-apple-darwin | `patent-quick-search_X.Y.Z_x86_64-apple-darwin.dmg` |
 | x86_64-pc-windows-msvc | `patent-quick-search_X.Y.Z_x86_64-pc-windows-msvc.exe`、同名 `.msi` |
-| 完整版本 | `build-manifest.json`、`SHA256SUMS` |
+| 完整版本 | `LICENSE`、`THIRD_PARTY_NOTICES.txt`、`build-manifest.json`、`SHA256SUMS` |
 
 构建清单写明源码提交、架构、文件大小/哈希、未签名/未公证边界、`runtimeVerified=false`。它不是可重复二进制位完全一致的承诺：runner 镜像、编译器外部 SDK、NSIS/WiX/WebView bootstrapper 仍会更新；固定源码与依赖只提供可重跑检查与可追踪产物。
 
