@@ -2,17 +2,19 @@
 
 ## 目前状态与待决策
 
-远端只读核对：默认分支 `main`、private、没有 `master`，基线 `e056eb1756f0748dd4b1f8c2ed7c28a06778dd39`。新流程严格以用户要求的 `master` 为发布来源；当前缺该分支与项目许可证，标签发行会失败关闭。本次只准备可审核代码 / draft PR，不改默认分支、可见性，不删分支、不 merge、不创建正式标签或正式 Release。
+起始远端为 main/private，基线 `e056eb1756f0748dd4b1f8c2ed7c28a06778dd39`。用户现已明确批准 MIT 与 main → master/default 迁移。已加入 MIT LICENSE 和一致元数据，从 main 的同一提交创建 master，保留 main 与完整历史，draft PR #1 已改以 master 为目标。默认分支更新尚需父线程协助：本环境没有仓库设置 API，gh 只读 API 返回 Forbidden；所需操作为 PATCH 仓库设置的 `default_branch=master`，尚未执行该写入。
+
+工作流严格以 master 为发布来源，不自动回退 main。本次不改 private 可见性、不删除分支、不 merge、不创建正式标签或 Release。
 
 没有 Developer ID / 公证或 Windows 发布者签名，故自动 Release 固定 `prerelease: true`，标题明确 unsigned preview。普通 `vX.Y.Z` 标签用于跨 Tauri/Windows 安装器的一致版本；稳定版和预览通道不混称。未来正式稳定分发需要维护者另行批准签名/验收方案并审查修改工作流。
 
-## main → master 方案（需维护者另行批准执行）
+## main → master 迁移与后续
 
-1. 先将工程化 PR 合并到现有 `main`，以合并后的准确 SHA 验证 CI，解决失败；选定并加入许可证及第三方再分发声明。
-2. 由维护者确认迁移窗口、现有 PR 基线、外部链接/脚本和协作者影响。可在 GitHub 将 `main` 重命名为 `master`；或先从同一已审查 SHA 创建 `master`，同步分支规则并将默认分支改为 `master`，暂留 `main`。
-3. CI 同时支持 main/master 与工作分支；发布来源固定为 `refs/heads/master`，不会自动回退 main。新 master 上再次验证准确 SHA 的 CI 后更新开发/贡献文档。
-4. 配置保护默认分支、必须审查/通过 CI、禁止强推/删除；为 `v*` 标签设 ruleset 限制创建与修改，避免移动已发布标签。本次仅建议，没有修改设置。
-5. 协作者获取新远端并更新本地跟踪分支。删除旧 main、公开仓库是独立决定；本方案不要求立即执行。
+1. **已完成**：从 main 的准确 e056eb1 创建 master，保留 main；draft PR #1 base 改为 master。两分支历史一致，无强推或丢弃提交。
+2. **已批准、待工具执行**：将默认分支设置为 master。需有仓库管理权限的 PATCH /repos/duanzheng/patent-quick-search，仅更新 `default_branch`；创建分支不等于默认分支已更新。
+3. PR 审核合并仍未授权；待维护者另行审查合并后，验证 master 上准确 SHA 的 CI。当前工程化与 MIT 变更位于 PR 工作分支，不把它们说成已进入 master。
+4. 维护者按需配置保护默认分支、必须审查/通过 CI、禁止强推/删除，以及 v* 标签 ruleset；本次未修改保护规则。
+5. 协作者获取 master 并更新本地跟踪。保留 main；删除旧分支和公开仓库是独立决定。CI 兼容 main/master push 与所有 PR。
 
 若维护者选择继续使用 main，应在另一个明确批准的 PR 将发布目标改成 main，并同步守卫、测试和文档；不能静默用 main 代替用户要求。
 

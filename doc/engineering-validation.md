@@ -21,12 +21,12 @@
 
 ## GitHub 验证
 
-[draft PR #1](https://github.com/duanzheng/patent-quick-search/pull/1)，基线 main，工作分支 `chore/open-source-ci-release`；未 merge。
+[draft PR #1](https://github.com/duanzheng/patent-quick-search/pull/1)，最初基线 main，获批迁移后改为 master；工作分支 `chore/open-source-ci-release`；未 merge。
 
 首次提交 `d8d973e32cfd75c2517ef440b11038a98170b1ad` 的 [PR CI run](https://github.com/duanzheng/patent-quick-search/actions/runs/39885562510) 前端通过，actionlint 安装器失败（上游安装 action 不支持该工具）。后续提交改为固定版本与官方 SHA-256 校验的二进制，并将三平台安装器构建直接纳入只读 CI。最终提交与 run 结果见本 PR 最新检查，不能用首次失败 run 声称全部通过。
 
 ## 发布与验收边界
 
-未创建正式 tag / GitHub Release，未改仓库可见性、默认分支或删除分支。MIT 与 main → master 迁移仍待维护者同意。当前缺 master / LICENSE，正式标签流程会失败关闭；无签名身份时只生成未签名/未公证的内部测试包，未来自动公开也固定为 prerelease。
+未创建正式 tag / GitHub Release，未改仓库可见性、未删除分支、未 merge。用户随后明确批准 MIT 与 main → master/default 迁移：已加入 MIT LICENSE 与一致元数据，从 e056eb1 创建 master 保留全部历史及 main，并把 PR base 改为 master。默认分支写入因工具能力缺失、gh API 返回 Forbidden 已交父线程协助，准确状态见发布指南。无签名身份时只生成未签名/未公证内部测试包，未来自动公开也固定为 prerelease。
 
 CI 安装器构建只证明编译、容器/PE 头与哈希检查；不是 Windows 11、macOS 13、中文输入法、托盘/热键、用户配置 ACL 或清洁安装/卸载通过。无付费 API 测试，不扩展既有检索质量结论。

@@ -2,7 +2,7 @@
 
 一个轻量的 Spotlight 风格桌面检索工具：输入公开技术点、关键词或公开号，发现值得继续阅读的专利与技术资料，在默认浏览器打开原网页。
 
-基于 Tauri 2、React / TypeScript 与 Rust。当前为 `0.1.0` 内测版，目标平台 Windows 11 x64、macOS 13+（Apple Silicon / Intel）。**项目尚未选择开源许可证，目前不授予开源使用许可**；维护者确认许可证后才能正式开放协作与发行，见[许可证决策](doc/licensing.md)。
+基于 Tauri 2、React / TypeScript 与 Rust。当前为 `0.1.0` 内测版，目标平台 Windows 11 x64、macOS 13+（Apple Silicon / Intel）。源码采用 [MIT 许可证](LICENSE)，由维护者明确批准；第三方许可另见[许可与声明](doc/licensing.md)。GitHub 仓库当前仍为 private，公开可见性是独立决定。
 
 ## 使用方式
 
@@ -48,7 +48,7 @@ npm run tauri build -- --no-bundle -- --locked
 
 [标签工作流](.github/workflows/release.yml)为 `master` 的版本标签构建 Apple Silicon DMG、Intel DMG、Windows x64 NSIS / MSI，以及 SHA-256 和源码提交清单。所有检查及构建成功后先上传 draft，全部附件上传成功才公开为**未签名 prerelease**；失败不公开残缺版本。PR 无发布权限，也不使用发布密钥。
 
-**当前默认分支仍是 `main`，尚无 `master`；发布守卫会拒绝发行。** 本次不迁移分支、不更改私有状态、不打正式标签。维护者先选择许可证、审核合并，再按[发布指南](doc/releasing.md)决定 `main → master` 迁移。发布安全、故障恢复及签名升级门槛见该指南。
+经用户批准，已从 main 的同一提交创建 `master`、保留 main，draft PR 以 master 为目标；默认分支设置的准确状态见[发布指南](doc/releasing.md)。本次不改私有状态、不 merge、不打正式标签、不发布正式版本。待 PR 审查合并后，才可按发布指南授权后续发行。
 
 ## 本地数据与卸载
 

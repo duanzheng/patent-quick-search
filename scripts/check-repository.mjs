@@ -10,10 +10,13 @@ export function versions(root = '.') {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
   const tauri = JSON.parse(read('src-tauri/tauri.conf.json'));
-  const cargo = read('src-tauri/Cargo.toml').match(/\[package\]([\s\S]*?)(?:\n\[|$)/)?.[1].match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  const cargoPackage = read('src-tauri/Cargo.toml').match(/\[package\]([\s\S]*?)(?:\n\[|$)/)?.[1];
+  const cargo = cargoPackage?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  const cargoLicense = cargoPackage?.match(/^license\s*=\s*"([^"]+)"/m)?.[1];
   const rustLock = read('src-tauri/Cargo.lock').match(/name = "patent-quick-search"\nversion = "([^"]+)"/)?.[1];
   const all = [pkg.version, lock.version, lock.packages[''].version, tauri.version, cargo, rustLock];
   if (!/^\d+\.\d+\.\d+$/.test(pkg.version) || all.some(v => v !== pkg.version)) throw new Error('Package, lockfiles, Cargo and Tauri versions must match (X.Y.Z)');
+  if (!pkg.license || [lock.packages[''].license, cargoLicense, tauri.bundle.license].some(v => v !== pkg.license)) throw new Error('npm, Cargo and Tauri license metadata must agree');
   for (const entry of Object.values(lock.packages)) {
     if (entry.resolved && !entry.resolved.startsWith('https://registry.npmjs.org/')) throw new Error('Lockfile must use the public HTTPS npm registry');
   }
