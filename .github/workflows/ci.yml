@@ -32,15 +32,22 @@ jobs:
       - run: npm audit --audit-level=high
 
   native:
-    name: Native (${{ matrix.os }})
+    name: Native (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022]
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: '0'
+      RELEASE_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -53,12 +60,36 @@ jobs:
         with:
           toolchain: '1.90.0'
           components: rustfmt, clippy
+          targets: ${{ matrix.target }}
       - run: npm ci --no-audit --no-fund
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Compile production desktop app (no installer, no signing)
-        run: npm run tauri build -- --no-bundle -- --locked
+      - name: Build macOS installers (ad-hoc only, not notarized)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+          BUILD_TARGET: ${{ matrix.target }}
+        run: npm run tauri build -- --target "$BUILD_TARGET" --bundles dmg -- --locked
+      - name: Build Windows installers (unsigned)
+        if: runner.os == 'Windows'
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
+      - name: Validate macOS disk image container
+        if: runner.os == 'macOS'
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: hdiutil verify src-tauri/target/"$BUILD_TARGET"/release/bundle/dmg/*.dmg
+      - name: Stage only expected installers and build metadata
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        shell: bash
+        run: node scripts/release-artifacts.mjs stage "$BUILD_TARGET"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: bundle-${{ matrix.target }}
+          path: release-stage/*
+          if-no-files-found: error
+          retention-days: 7
 
   supply-chain:
     name: Rust advisories and workflow syntax
@@ -73,6 +104,12 @@ jobs:
           toolchain: '1.90.0'
       - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2
         with:
-          tool: cargo-audit@0.22.2,actionlint@1.7.11
+          tool: cargo-audit@0.22.2
       - run: cargo audit --file src-tauri/Cargo.lock
-      - run: actionlint -color
+      - name: Check workflow syntax with checksum-pinned actionlint
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.11/actionlint_1.7.11_linux_amd64.tar.gz --output "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "900919a84f2229bac68ca9cd4103ea297abc35e9689ebb842c6e34a3d1b01b0a  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color

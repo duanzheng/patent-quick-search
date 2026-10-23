@@ -37,6 +37,7 @@ jobs:
         run: |
           # A command-scoped header works for private repos without saving credentials.
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$header"
           git -c "http.extraheader=$header" fetch --no-tags --force origin "refs/heads/master:refs/remotes/origin/master" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           npm run check:release
           echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
@@ -48,70 +49,9 @@ jobs:
     permissions:
       contents: read
 
-  bundle:
-    needs: [guard, quality]
-    name: Bundle (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            target: aarch64-apple-darwin
-            bundles: dmg
-          - os: macos-14
-            target: x86_64-apple-darwin
-            bundles: dmg
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            bundles: nsis,msi
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    env:
-      RELEASE_SHA: ${{ needs.guard.outputs.sha }}
-      CARGO_INCREMENTAL: '0'
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.guard.outputs.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
-        with:
-          toolchain: '1.90.0'
-          targets: ${{ matrix.target }}
-      - run: npm ci --no-audit --no-fund
-      - name: Build macOS (ad-hoc only, no developer identity or notarization)
-        if: runner.os == 'macOS'
-        env:
-          APPLE_SIGNING_IDENTITY: '-'
-          BUILD_TARGET: ${{ matrix.target }}
-        run: npm run tauri build -- --target "$BUILD_TARGET" --bundles dmg -- --locked
-      - name: Build Windows (unsigned)
-        if: runner.os == 'Windows'
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
-      - name: Validate macOS disk image container
-        if: runner.os == 'macOS'
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
-        run: hdiutil verify src-tauri/target/"$BUILD_TARGET"/release/bundle/dmg/*.dmg
-      - name: Stage only expected installers and build metadata
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
-        shell: bash
-        run: node scripts/release-artifacts.mjs stage "$BUILD_TARGET"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: bundle-${{ matrix.target }}
-          path: release-stage/*
-          if-no-files-found: error
-          retention-days: 7
-
   publish:
     name: Publish complete unsigned prerelease
-    needs: [guard, quality, bundle]
+    needs: [guard, quality]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -142,6 +82,7 @@ jobs:
         shell: bash
         run: |
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$header"
           git -c "http.extraheader=$header" fetch --no-tags --force origin "refs/heads/master:refs/remotes/origin/master" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           npm run check:release
           # Existing releases are never overwritten, including partial drafts.

@@ -29,8 +29,8 @@
 ## 工作流与产物
 
 1. `guard`：严格版本、标签/事件/checkout 一致、远端 master 归属、明确 LICENSE。任何失败不创建 Release。
-2. `quality`：复用 CI；无需 secrets。PR / 构建 jobs 仅 `contents: read`，checkout 不保留 git 凭据；Actions 固定完整 SHA。
-3. 三个独立 runner 构建目标：macos-14 生成 Apple Silicon 与交叉 Intel DMG，windows-2022 生成 x64 NSIS / MSI。显式 Cargo `--locked`、固定 Node/Rust；macOS ad-hoc、未公证，Windows 未签名。
+2. `quality`：复用 CI，包含三平台安装器构建；无需 secrets。PR / 构建 jobs 仅 `contents: read`，checkout 不保留 git 凭据；Actions 固定完整 SHA。
+3. CI 的三个独立 runner 构建目标：macos-14 生成 Apple Silicon DMG，macos-15-intel 原生生成 Intel DMG，windows-2022 生成 x64 NSIS / MSI。显式 Cargo `--locked`、固定 Node/Rust；macOS ad-hoc、未公证，Windows 未签名。
 4. 上传每个平台**指定后缀的唯一安装器**与 manifest 为临时 Actions artifact（保留 7 天）。Windows 检查应用 PE32+ x64 GUI 头；macOS `hdiutil verify` 检查 DMG 容器。二者都不是运行验收。
 5. 全部完成后，独立 `publish` job 获 `contents: write`，下载本次 run 的三份 artifact，验证目标数、源码 SHA/版本、文件清单、大小、哈希与签名声明。拒绝缺失、额外文件与篡改。
 6. 再次获取远端 tag/master 并复查。创建 draft，上传**全部**附件，最后一步才公开 prerelease、`latest=false`。已有 release/draft 不覆盖；任何上传失败留 draft，不公开残缺正式版本。
@@ -62,5 +62,5 @@
 
 - [Tauri GitHub 分发](https://v2.tauri.app/distribute/pipelines/github/)：平台构建与 macOS ad-hoc 提示；本项目使用 CLI 和独立 draft 发布，避免矩阵单任务提前公开残缺 release。
 - [Tauri 前置条件](https://v2.tauri.app/start/prerequisites/)、[Windows 安装器](https://v2.tauri.app/distribute/windows-installer/)、[macOS 签名/公证](https://v2.tauri.app/distribute/sign/macos/)。
-- [GitHub runner 支持](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[runner 镜像清单](https://github.com/actions/runner-images)：macos-14 为 arm64，Intel 使用交叉编译；windows-2022 为 x64 Server，不替代 Windows 11 运行验收。
+- [GitHub runner 支持](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[runner 镜像清单](https://github.com/actions/runner-images)：macos-14 为 arm64，Intel 使用 macos-15-intel 原生构建；windows-2022 为 x64 Server，不替代 Windows 11 运行验收。
 - [Actions 安全参考](https://docs.github.com/en/actions/reference/security/secure-use)、[Release REST API](https://docs.github.com/en/rest/releases/releases)：最小权限、固定 action SHA、先 draft 后公开。

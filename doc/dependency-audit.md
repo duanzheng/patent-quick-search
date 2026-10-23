@@ -6,7 +6,7 @@
 
 - 从干净依赖安装发现 package-lock 中 12 个公司内网 HTTP registry URL，外部环境返回 403。改为 npm 官方 HTTPS，原版本/完整性哈希不变。
 - npm 全量审计（含开发依赖）最初报告 4 个受影响包：Happy DOM 高危、Vitest / Tinypool 严重、Vitest mocker 中危。升级 Happy DOM 至锁定 20.14.6、Vitest 至 4.1.12 及其受支持传递依赖，重跑审计为 **0 漏洞**。仅调整测试 mock 泛型以适配新的 Vitest 类型，不改产品行为。
-- `cargo-audit 0.22.2` 最初发现 `tokio 1.54.0` 的 `RUSTSEC-2026-0384`，该版本亦已撤回。只将锁定 Tokio 更新至 1.54.1，不批量刷新无关 Rust 依赖。
+- `cargo-audit 0.22.2` 最初发现 `tokio 1.54.0` 的 `RUSTSEC-2026-0384`，该版本亦已撤回。将 Tokio 更新至 1.54.1；Cargo 同时按 registry 元数据修正原锁文件中 windows-sys / syn 的依赖边，不升级这些无关包的版本。重跑审计为 **0 漏洞**，保留下列 2 项 informational 警告。
 - Rust 的已知上游警告另行保留，不能写成“全部依赖无风险”：`proc-macro-error 1.0.4` 未维护（RUSTSEC-2024-0370）；Linux GTK 依赖 `glib 0.18.5` 有 unsound 警告（RUSTSEC-2024-0429，修复线 >=0.20，不能单独跨主版本替换 Tauri 依赖）。目标发行仅 macOS/Windows，不发布 Linux 包，但仍记录依赖图中的此项。没有添加全局忽略，也没有伪称修复上游 GTK。
 
 审计依据为 npm / RustSec 当时数据库，不保证发现未知漏洞。默认 CI 执行 npm `--audit-level=high` 与 Cargo audit，真实漏洞使检查失败；Cargo 的 informational 警告仍需维护者审阅，不应把退出 0 解读为无警告。Dependabot 每周检查 npm、Cargo、Actions，保持 PR 审查与无自动合并。
