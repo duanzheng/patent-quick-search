@@ -44,7 +44,7 @@ npm run tauri build -- --no-bundle -- --locked
 
 ## CI 与标签发布
 
-[CI](.github/workflows/ci.yml)检查每个分支 push / PR：前端 lint、类型、离线测试、构建、发布策略；Apple Silicon / Intel macOS 与 Windows 分别运行 Rust 格式、clippy、测试与安装器构建（内部测试产物保留 7 天）；另检查 npm / Rust 安全公告与工作流语法。
+[CI](.github/workflows/ci.yml)检查所有 PR、main/master push（避免同一 PR 重复构建）：前端 lint、类型、离线测试、构建、发布策略；Apple Silicon / Intel macOS 与 Windows 分别运行 Rust 格式、clippy、测试与安装器构建（内部测试产物保留 7 天）；另检查 npm / Rust 安全公告与工作流语法。
 
 [标签工作流](.github/workflows/release.yml)为 `master` 的版本标签构建 Apple Silicon DMG、Intel DMG、Windows x64 NSIS / MSI，以及 SHA-256 和源码提交清单。所有检查及构建成功后先上传 draft，全部附件上传成功才公开为**未签名 prerelease**；失败不公开残缺版本。PR 无发布权限，也不使用发布密钥。
 
@@ -62,5 +62,6 @@ macOS 将应用拖入 Applications，退出后移到废纸篓；Windows 通过�
 - [安全政策](SECURITY.md)、[依赖与许可证审计](doc/dependency-audit.md)
 - [开发指南](doc/development.md)、[贡献规范](CONTRIBUTING.md)、[行为规范](CODE_OF_CONDUCT.md)
 - [发布与分支迁移](doc/releasing.md)、[变更记录](CHANGELOG.md)
+- [本轮工程化验证记录](doc/engineering-validation.md)
 
 `doc/` 旧报告是当时环境的历史证据，Mac 路径、测试计数、旧 Fetch / 钥匙串说明和授权范围可能已过时；当前行为以 PRD、源码和本页新指南为准。原始机器日志不入库，不把缺失的本地证据链接当作当前验收通过。
