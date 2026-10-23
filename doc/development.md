@@ -61,3 +61,5 @@ npm run audit:licenses
 使用[当前清单](acceptance-checklist.md)和[Windows 模板](windows-acceptance-record-template.md)。记录源码 SHA、系统/架构、包哈希、签名情况、执行步骤、结果和未验证项。合成测试不代替真实服务质量，打包不代替安装/卸载。默认 CI 不做付费 API 测试；如后续授权人工测试，用户在应用里自行填 Key，仅记录次数/状态/耗时。
 
 不要上传用户状态、真实 Key、搜索内容、余额、截图或整个 target。历史报告的测试计数和绝对 Mac 路径只说明当时的验证，不能复制成当前 CI 证据。
+
+macOS CI also runs `node --test scripts/dmg-native.test.mjs`: a tiny synthetic volume exercises real hdiutil SLA cancellation, acknowledgement, read-only mounting and cleanup. It contains no executable, runs no Tauri production build, and uploads no installer. Non-macOS hosts skip this native test.

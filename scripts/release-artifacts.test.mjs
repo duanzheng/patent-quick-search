@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { assemble, targets, verifyMacResources } from './release-artifacts.mjs';
+import { assemble, targets, verifyMacResources, verifyDiskImage } from './release-artifacts.mjs';
 
 // Synthetic bytes exercise staging integrity only; these are never installers.
 function fixture(root) {
@@ -41,6 +41,27 @@ for (const scenario of ['complete', 'missing-platform', 'missing-file', 'tampere
     if (scenario === 'complete') { assert.equal(run().length, 3);assert.equal(readFileSync(join(root, 'release/SHA256SUMS'), 'utf8').trim().split('\n').length, 7); }
     else assert.throws(run);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+for (const tampered of [false, true]) test(`DMG attach protocol with synthetic transport: SLA acknowledgement and cleanup (tampered=${tampered})`, () => {
+  const bytes = 'Synthetic project MIT license fixture\n';
+  const legal = ['LICENSE', 'THIRD_PARTY_NOTICES.txt'].map(name => ({ name, sha256: createHash('sha256').update(bytes).digest('hex') }));
+  let mount;const calls = [];
+  const run = (command, args, options) => {
+    assert.equal(command, 'hdiutil');calls.push(args[0]);
+    if (args[0] === 'attach') {
+      assert.ok(args.includes('-readonly'));assert.ok(args.includes('-nobrowse'));
+      // Models hdiutil cancelling an SLA-bearing image when stdin reaches EOF.
+      if (options.input !== 'Y\n') throw new Error('attach canceled: license acknowledgement missing');
+      mount = args[args.indexOf('-mountpoint') + 1];
+      const resources = join(mount, '技术点快搜.app/Contents/Resources');mkdirSync(resources, { recursive: true });
+      for (const file of legal) writeFileSync(join(resources, file.name), tampered ? 'tampered' : bytes);
+    } else if (args[0] === 'detach') {
+      assert.equal(args[1], mount);rmSync(join(mount, '技术点快搜.app'), { recursive: true });
+    } else throw new Error('Unexpected transport operation');
+  };
+  const verify = () => verifyDiskImage('/synthetic/fixture.dmg', legal, run);
+  if (tampered) assert.throws(verify, /license resources/);else verify();
+  assert.deepEqual(calls, ['attach', 'detach']);assert.equal(existsSync(mount), false);
 });
 for (const scenario of ['complete', 'missing-notice', 'tampered-notice', 'no-app', 'multiple-apps']) test(`final DMG mounted-volume fixture: ${scenario}`, () => {
   const root = mkdtempSync(join(tmpdir(), 'patent-dmg-volume-'));
