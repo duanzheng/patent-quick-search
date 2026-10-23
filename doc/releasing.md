@@ -60,3 +60,5 @@ master 已从原 main 的 e056eb1 创建并设为默认分支，main 保留；�
 - [Tauri 前置条件](https://v2.tauri.app/start/prerequisites/)、[Windows 安装器](https://v2.tauri.app/distribute/windows-installer/)、[macOS 签名/公证](https://v2.tauri.app/distribute/sign/macos/)。
 - [GitHub runner 支持](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[runner 镜像清单](https://github.com/actions/runner-images)：macos-14 为 arm64，Intel 使用 macos-15-intel 原生构建；windows-2022 为 x64 Server，不替代 Windows 11 运行验收。
 - [Actions 安全参考](https://docs.github.com/en/actions/reference/security/secure-use)、[Release REST API](https://docs.github.com/en/rest/releases/releases)：最小权限、固定 action SHA、先 draft 后公开。
+
+The DMG verifier acknowledges the embedded project MIT license through stdin, mounts the final image read-only, checks bundled legal texts, and detaches it even when a hash check fails. A tiny native macOS fixture tests this protocol before release builds.

@@ -26,16 +26,18 @@ export function verifyMacResources(directory, legal) {
   if (apps.length !== 1) throw new Error('Expected one application inside the final disk image');
   for (const file of legal) if (hash(join(directory, apps[0], 'Contents/Resources', file.name)) !== file.sha256) throw new Error('Application license resources do not match source');
 }
-function verifyDiskImage(path, legal) {
+export function verifyDiskImage(path, legal, run = execFileSync) {
   const mount = mkdtempSync(join(tmpdir(), 'patent-release-dmg-'));
   let attached = false;
   try {
-    execFileSync('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, path], { stdio: 'pipe' });attached = true;
+    // bundle.licenseFile embeds our project MIT license as a disk-image SLA.
+    // A closed stdin cancels attach; acknowledge it for this read-only CI check.
+    run('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, path], { stdio: 'pipe', input: 'Y\n', timeout: 60000 });attached = true;
     verifyMacResources(mount, legal);
   } finally {
-    if (attached) execFileSync('hdiutil', ['detach', mount], { stdio: 'pipe' });
+    if (attached) run('hdiutil', ['detach', mount], { stdio: 'pipe', timeout: 30000 });
     // Only remove the empty mountpoint after successful detachment.
-    rmdirSync(mount);
+    if (existsSync(mount)) rmdirSync(mount);
   }
 }
 export function stage(root, target, commit, destination) {
