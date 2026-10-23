@@ -44,9 +44,7 @@ npm run tauri build -- --no-bundle -- --locked
 
 ## CI 与标签发布
 
-[CI](.github/workflows/ci.yml)检查所有 PR、main/master push（避免同一 PR 重复构建）：前端 lint、类型、离线测试、构建、发布策略；Apple Silicon / Intel macOS 与 Windows 分别运行 Rust 格式、clippy、测试与安装器构建（内部测试产物保留 7 天）；另检查 npm / Rust 安全公告与工作流语法。
-
-最后的只读 job 对实际三平台产物执行完整性、提交/版本、大小与哈希校验，生成含四个安装器、`build-manifest.json` 和 `SHA256SUMS` 的 `release-preview` artifact；不创建 GitHub Release。
+[CI](.github/workflows/ci.yml)检查所有 PR、main/master push（避免同一 PR 重复运行）：前端 lint、类型、76 项离线测试、发布工具测试、npm / Rust 安全审计与工作流语法；macOS 执行 Rust fmt / clippy / test，Windows 只做 Rust 必要编译检查。普通 CI 不构建生产安装包、不上传 installer artifacts，也不发布 Release。`npm run check:ci` 是相同的前端轻量入口；本地 `npm run check` 额外检查 Vite 构建。
 
 [标签工作流](.github/workflows/release.yml)为 `master` 的版本标签构建 Apple Silicon DMG、Intel DMG、Windows x64 NSIS / MSI，以及 SHA-256 和源码提交清单。所有检查及构建成功后先上传 draft，全部附件上传成功才公开为**未签名 prerelease**；失败不公开残缺版本。PR 无发布权限，也不使用发布密钥。
 

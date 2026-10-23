@@ -13,12 +13,13 @@
     "lint": "eslint .",
     "test": "vitest run",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run check:repository && npm run lint && npm run typecheck && npm test && npm run test:tooling && npm run build",
+    "check": "npm run check:ci && npm run build",
     "check:repository": "node scripts/check-repository.mjs",
     "check:release": "node scripts/check-release.mjs",
     "audit:licenses": "node scripts/dependency-inventory.mjs",
     "test:tooling": "node --test scripts/*.test.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check:ci": "npm run check:repository && npm run lint && npm run typecheck && npm test && npm run test:tooling"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

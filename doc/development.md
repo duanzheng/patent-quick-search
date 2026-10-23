@@ -25,7 +25,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml
 npm run tauri dev
 ```
 
-`npm run check` 统一执行仓库版本/公开 registry/依赖清单一致性、lint、类型、Vitest、Node 发布工具测试和前端构建。Vitest 覆盖查询、取消/竞态、结果显示/选择、热键、合成 bridge 与 URL 边界；Rust 覆盖原生传输/状态/凭据/存储/热键；发布工具测试覆盖分支归属、版本、许可证、产物缺失/篡改/夹带。它们不需要真实 Key，不发付费 API 请求。
+`npm run check:ci` 执行仓库版本/公开 registry/依赖清单一致性、lint、类型、Vitest 和 Node 发布工具测试；`npm run check` 在此基础上额外执行本地 Vite 构建。普通 CI 不构建或上传生产安装包；macOS 运行 Rust fmt / clippy / test，Windows 仅 cargo check --all-targets。Vitest 覆盖查询、取消/竞态、结果显示/选择、热键、合成 bridge 与 URL 边界；Rust 覆盖原生传输/状态/凭据/存储/热键；发布工具测试覆盖分支归属、版本、许可证、产物缺失/篡改/夹带。它们不需要真实 Key，不发付费 API 请求。
 
 前端本地预览 `npm run dev` 没有完整原生 IPC，只用于 UI 开发。实际托盘、热键、中文输入法、浏览器与操作系统权限必须运行桌面应用验证。
 
@@ -41,7 +41,7 @@ npm run tauri build -- --target x86_64-pc-windows-msvc --bundles nsis,msi -- --l
 node scripts/verify-windows-artifacts.mjs --include-msi
 ```
 
-macOS CI 设置临时 `APPLE_SIGNING_IDENTITY=-`，仅 ad-hoc，不做 Developer ID 签名或公证。Windows 不配置发布者签名。安装包位于 `src-tauri/target/<target>/release/bundle/`；不要提交这些文件。Windows 的 `scripts/build-windows.ps1` 是面向已有 Windows 11 开发机的辅助脚本，带系统版本预检；CI 直接执行跨 runner 命令，因为 GitHub Windows runner 是 Windows Server，不能伪称 Windows 11 用户验收。
+仅版本标签发布时，macOS 打包设置临时 `APPLE_SIGNING_IDENTITY=-`，仅 ad-hoc，不做 Developer ID 签名或公证。Windows 不配置发布者签名。安装包位于 `src-tauri/target/<target>/release/bundle/`；不要提交这些文件。Windows 的 `scripts/build-windows.ps1` 是面向已有 Windows 11 开发机的辅助脚本，带系统版本预检；发布工作流直接执行跨 runner 打包命令，因为 GitHub Windows runner 是 Windows Server，不能伪称 Windows 11 用户验收。
 
 ## 依赖与安全检查
 
