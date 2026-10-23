@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "scope": "All npm lock entries and Cargo resolved packages, including development and target-specific dependencies. Metadata only; platform system libraries are not included.",
   "lockfiles": {
-    "npmSha256": "2609b60f28cbf338ed38ec7b4d9631c0a74addc49876ac9f56dc78fdc638a3cb",
-    "cargoSha256": "ad13920f166e91077dcf41ff9e3731166319de3c21c0b7713be37cb9cf47ad2f"
+    "npmSha256": "530bca57e59739c8674cd0b2d7816cf80fa73e82941688e4e6e0760b887faea4",
+    "cargoSha256": "0a105cfc7d134fc8d17787c155378c57e61994a9eaf81b6dff0439d7078d8f3d"
   },
   "npm": [
     {

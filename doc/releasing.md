@@ -2,7 +2,7 @@
 
 ## 目前状态与待决策
 
-默认分支为 master，原 main 与完整历史保留，仓库为 private。源码采用 MIT。普通 CI 仅测试/类型/lint/必要编译/安全检查；只有 master 归属的版本标签进入生产打包和发布。首版按当前 0.1.0 的一致元数据准备，实际已发布版本以 GitHub Releases 为准。
+默认分支为 master，原 main 与完整历史保留，仓库为 private。源码采用 MIT。普通 CI 仅测试/类型/lint/必要编译/安全检查；只有 master 归属的版本标签进入生产打包和发布。首版按当前一致元数据准备，实际已发布版本以 GitHub Releases 为准。
 
 `THIRD_PARTY_NOTICES.txt` 包含发布目标依赖的完整条款、原始版权/NOTICE、精确版本源码链接及 MPL 源码获取说明。`legal/notice-manifest.json` 校验其覆盖与锁文件/全文哈希。LICENSE 与第三方全文同时作为应用资源和下载附件；缺失或篡改使质量/发布守卫失败。
 
@@ -26,7 +26,7 @@ master 已从原 main 的 e056eb1 创建并设为默认分支，main 保留；�
 
 1. `guard`：严格版本、标签/事件/checkout 一致、远端 master 归属、明确 LICENSE。任何失败不创建 Release。
 2. `quality`：复用轻量 CI，仅测试、类型、lint、必要 Rust 编译与安全检查；不打包、不上传安装器，无需 secrets。PR / 构建 jobs 仅 `contents: read`，checkout 不保留 git 凭据；Actions 固定完整 SHA。
-3. **仅通过守卫的版本 tag** 才进入发布专用 `bundle` job。三个独立 runner 构建目标：macos-14 生成 Apple Silicon DMG，macos-15-intel 原生生成 Intel DMG，windows-2022 生成 x64 NSIS / MSI。显式 Cargo `--locked`、固定 Node/Rust；macOS ad-hoc、未公证，Windows 未签名。
+3. **仅通过守卫的版本 tag** 才进入发布专用 `bundle` job。三个独立 runner 构建目标：macos-14 生成 Apple Silicon DMG，macos-15-intel 原生生成 Intel DMG，windows-2022 生成 x64 NSIS / MSI。显式 Cargo `--locked`、固定 Node/Rust；macOS ad-hoc、未公证，Windows 未签名。MSI 显式使用 zh-CN 本地化，支持中文产品名称。
 4. 发布工作流上传每个平台**指定后缀的唯一安装器**与 manifest 为临时 Actions artifact（保留 7 天），仅供最终发布组装。Windows 检查应用 PE32+ x64 GUI 头；macOS `hdiutil verify` 检查 DMG 容器，二者都不是运行验收。同 run 重跑允许覆盖临时 artifact，不覆盖 GitHub Release。普通 PR / push CI 不运行此矩阵或完整安装包汇总 job。
 5. 全部完成后，独立 `publish` job 获 `contents: write`，下载本次 run 的三份 artifact，验证目标数、源码 SHA/版本、文件清单、大小、哈希与签名声明。拒绝缺失、额外文件与篡改。
 6. 再次获取远端 tag/master 并复查。创建 draft，上传**全部**附件，最后一步才公开 prerelease、`latest=false`。已有 release/draft 不覆盖；任何上传失败留 draft，不公开残缺正式版本。

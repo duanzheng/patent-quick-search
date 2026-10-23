@@ -21,4 +21,4 @@ npm run check:ci
 
 生成器离线读取已获取 crate 与 node_modules，不运行付费 API。新增缺失许可会失败，维护者应先添加准确上游声明，不能用通用模板替换版权通知。提交生成的全文、manifest、上游补充文件及锁文件；普通 CI 只校验这些快照的哈希/覆盖，不打包。
 
-macOS 发布还比较 .app/Contents/Resources 中两份法律文件与源码哈希；各平台 staging / 最终 assemble 均验证法律附件，拒绝缺失或篡改。Windows 由 Tauri 显式资源映射随 NSIS/MSI 安装，实际安装/卸载仍须目标设备验收。系统框架、WebView2 与 SDK 自带条款独立适用；未把元数据审计描述为法律意见。
+macOS 发布还只读挂载最终 DMG，比较其中 .app/Contents/Resources 的两份法律文件与源码哈希；各平台 staging / 最终 assemble 均验证法律附件，拒绝缺失或篡改。Windows 由 Tauri 显式资源映射随 NSIS/MSI 安装，实际安装/卸载仍须目标设备验收。系统框架、WebView2 与 SDK 自带条款独立适用；未把元数据审计描述为法律意见。

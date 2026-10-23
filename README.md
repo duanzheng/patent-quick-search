@@ -2,7 +2,7 @@
 
 一个轻量的 Spotlight 风格桌面检索工具：输入公开技术点、关键词或公开号，发现值得继续阅读的专利与技术资料，在默认浏览器打开原网页。
 
-基于 Tauri 2、React / TypeScript 与 Rust。当前为 `0.1.0` 内测版，目标平台 Windows 11 x64、macOS 13+（Apple Silicon / Intel）。源码采用 [MIT 许可证](LICENSE)；随包分发的完整第三方文本见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)，来源与补齐方法见[许可说明](doc/licensing.md)。GitHub 仓库当前仍为 private，公开可见性是独立决定。
+基于 Tauri 2、React / TypeScript 与 Rust。当前为 `0.1.1` 内测版，目标平台 Windows 11 x64、macOS 13+（Apple Silicon / Intel）。源码采用 [MIT 许可证](LICENSE)；随包分发的完整第三方文本见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)，来源与补齐方法见[许可说明](doc/licensing.md)。GitHub 仓库当前仍为 private，公开可见性是独立决定。
 
 ## 使用方式
 

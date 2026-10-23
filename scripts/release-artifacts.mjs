@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -19,6 +21,23 @@ const nameFor = (version, target, ext) => `patent-quick-search_${version}_${targ
 function assertIdentity(version, commit) {
   if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[0-9a-f]{40}$/.test(commit)) throw new Error('Invalid build identity');
 }
+export function verifyMacResources(directory, legal) {
+  const apps = readdirSync(directory).filter(name => name.endsWith('.app') && statSync(join(directory, name)).isDirectory());
+  if (apps.length !== 1) throw new Error('Expected one application inside the final disk image');
+  for (const file of legal) if (hash(join(directory, apps[0], 'Contents/Resources', file.name)) !== file.sha256) throw new Error('Application license resources do not match source');
+}
+function verifyDiskImage(path, legal) {
+  const mount = mkdtempSync(join(tmpdir(), 'patent-release-dmg-'));
+  let attached = false;
+  try {
+    execFileSync('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, path], { stdio: 'pipe' });attached = true;
+    verifyMacResources(mount, legal);
+  } finally {
+    if (attached) execFileSync('hdiutil', ['detach', mount], { stdio: 'pipe' });
+    // Only remove the empty mountpoint after successful detachment.
+    rmdirSync(mount);
+  }
+}
 export function stage(root, target, commit, destination) {
   const policy = targets[target];if (!policy) throw new Error('Unsupported release target');
   const version = versions(root);assertIdentity(version, commit);
@@ -37,10 +56,7 @@ export function stage(root, target, commit, destination) {
   const legal = legalFiles(root);
   for (const file of legal) copyFileSync(join(root, file.name), join(destination, file.name));
   if (target.endsWith('apple-darwin')) {
-    const appRoot = join(release, 'bundle/macos');
-    const apps = readdirSync(appRoot).filter(name => name.endsWith('.app'));
-    if (apps.length !== 1) throw new Error('Expected one macOS application bundle');
-    for (const file of legal) if (hash(join(appRoot, apps[0], 'Contents/Resources', file.name)) !== file.sha256) throw new Error('Application license resources do not match source');
+    verifyDiskImage(resolve(destination, files[0].name), legal);
   }
   const manifest = { schemaVersion: 1, version, commit, target, signing: policy.signing, runtimeVerified: false, files, legalFiles: legal };
   writeFileSync(join(destination, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
